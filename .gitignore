@@ -15,9 +15,11 @@ ENV/
 # ==============================================================================
 # LOGS E ARQUIVOS TEMPORÁRIOS
 # ==============================================================================
-# Logs gerados pelo instalador ou pelo Streamlit
+# Pasta de logs gerados pelos scripts .bat e pelo Streamlit
+logs/
 *.log
 instalar.log
+executar.log
 
 # ==============================================================================
 # CACHES E COMPILAÇÃO PYTHON

@@ -26,7 +26,7 @@ SHEETS_ABA_PDV = "PDV"
 # GID (ID numérico) da aba PDV na planilha
 # Para encontrar: abra a planilha, clique na aba PDV, e copie o número após #gid= na URL
 # Exemplo: https://docs.google.com/spreadsheets/d/.../edit#gid=123456789
-SHEETS_GID_PDV = "0"  # SUBSTITUA PELO GID REAL DA ABA PDV
+SHEETS_GID_PDV = "1312090202"  # GID correto da aba PDV
 
 # ==============================================================================
 # CONFIGURAÇÕES DE CACHE E PERFORMANCE

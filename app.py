@@ -250,7 +250,8 @@ st.subheader("📥 Exportar Dados Filtrados")
 col_exp1, col_exp2, _ = st.columns([1, 1, 4])
 
 with col_exp1:
-    csv = df_display.to_csv(index=False, sep=';', decimal=',').encode('latin-1') # latin-1 para abrir direto no Excel PT-BR
+    # CORREÇÃO: Usar utf-8-sig em vez de latin-1 para suportar emojis (🟢 🔴)
+    csv = df_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
     st.download_button(
         label="📄 Baixar CSV",
         data=csv,

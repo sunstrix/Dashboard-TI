@@ -18,6 +18,7 @@ def _listar_arquivos_drive():
     """
     Lista todos os arquivos na pasta configurada do Google Drive.
     Implementa paginação automática para suportar centenas de arquivos.
+    Aplica filtros de exclusão definidos em config.EXCLUSOES_DRIVE.
     """
     service = _get_drive_service()
     arquivos = []
@@ -28,7 +29,7 @@ def _listar_arquivos_drive():
             response = service.files().list(
                 q=f"'{config.DRIVE_FOLDER_ID}' in parents and trashed=false",
                 spaces='drive',
-                fields='nextPageToken, files(id, name, modifiedTime)',
+                fields='nextPageToken, files(id, name, modifiedTime, mimeType)',
                 pageToken=page_token
             ).execute()
             
@@ -43,8 +44,33 @@ def _listar_arquivos_drive():
                 raise ValueError("Erro 404: Pasta do Google Drive não encontrada. Verifique o ID no config.py.")
             else:
                 raise ValueError(f"Erro ao acessar o Google Drive: {e}")
-                
-    return arquivos
+    
+    # Aplica filtros de exclusão RIGOROSOS
+    arquivos_filtrados = []
+    for arquivo in arquivos:
+        nome = arquivo.get('name', '')
+        mime_type = arquivo.get('mimeType', '')
+        
+        # PRIORIDADE MÁXIMA: Ignora TODAS as pastas (incluindo "Boticário")
+        if mime_type == 'application/vnd.google-apps.folder':
+            continue
+        
+        # Ignora arquivos que NÃO sejam .txt (snapshots de hardware)
+        if not nome.endswith('.txt'):
+            continue
+        
+        # Ignora arquivos na lista de exclusões do config
+        if nome in config.EXCLUSOES_DRIVE.get('arquivos', []):
+            continue
+        
+        # Ignora arquivos cujos nomes contenham palavras-chave de pastas excluídas
+        pastas_excluidas = config.EXCLUSOES_DRIVE.get('pastas', [])
+        if any(pasta.lower() in nome.lower() for pasta in pastas_excluidas):
+            continue
+        
+        arquivos_filtrados.append(arquivo)
+    
+    return arquivos_filtrados
 
 def _baixar_arquivo_drive(file_id, max_retries=3):
     """

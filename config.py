@@ -23,6 +23,12 @@ SHEETS_SPREADSHEET_ID = "1Vr4T1x8nKDxh5O4AcSXqlHrfqZh8WIcAD-HOm9KRHiA"
 # Aba da planilha que contém os dados de equipamentos GB
 SHEETS_ABA_PDV = "PDV"
 
+# GID (ID numérico) da aba PDV na planilha
+# Para encontrar: abra a planilha, clique na aba PDV, e copie o número após #gid= na URL
+# Exemplo: https://docs.google.com/spreadsheets/d/ID/edit#gid=123456789
+# O número 123456789 é o GID
+SHEETS_GID_PDV = "0"  # SUBSTITUA PELO GID REAL DA ABA PDV
+
 # ==============================================================================
 # CONFIGURAÇÕES DE CACHE E PERFORMANCE
 # ==============================================================================

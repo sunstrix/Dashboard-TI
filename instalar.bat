@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-title Instalador Dashboard-TI v4.0 (Com Logs)
+title Instalador Dashboard-TI v5.0 (CP FANI)
 color 0A
 
 REM Cria a pasta de logs se nao existir
@@ -15,8 +15,8 @@ echo ============================================================ >> %LOGFILE%
 echo. >> %LOGFILE%
 
 echo ============================================================
-echo    INSTALADOR AUTOMATIZADO - DASHBOARD TI (GRUPO NSF)
-echo    Versao 4.0 - Com sistema de logs completo
+echo    INSTALADOR AUTOMATIZADO - DASHBOARD TI (CP FANI)
+echo    Versao 5.0 - Com sistema de logs completo
 echo ============================================================
 echo.
 echo [INFO] O log detalhado esta sendo salvo em: logs\instalar.log
@@ -145,47 +145,48 @@ echo [OK] Dependencias instaladas com sucesso. >> %LOGFILE%
 echo.
 echo [7/7] Criando atalho de execucao (executar.bat)...
 echo [7/7] Criando atalho de execucao (executar.bat)... >> %LOGFILE%
-(
-echo @echo off
-echo cd /d "%%~dp0"
-echo title Dashboard TI - Grupo NSF
-echo color 0B
-echo cls
-echo if not exist "logs" mkdir logs
-echo set LOGFILE=logs\executar.log
-echo echo ============================================================ %%LOGFILE%%
-echo echo EXECUTOR DASHBOARD-TI - Log de Execucao %%LOGFILE%%
-echo echo Data/Hora: %%date%% %%time%% %%LOGFILE%%
-echo echo ============================================================ %%LOGFILE%%
-echo echo. %%LOGFILE%%
-echo echo ============================================================
-echo echo    INICIANDO DASHBOARD TI - GRUPO NSF
-echo echo ============================================================
-echo echo.
-echo echo O navegador abrira em instantes em: http://localhost:8501
-echo echo.
-echo echo Para encerrar o servidor:
-echo echo   - Feche esta janela, OU
-echo echo   - Pressione Ctrl+C aqui e confirme com S
-echo echo.
-echo echo ============================================================
-echo echo.
-echo if not exist "venv\Scripts\python.exe" ^(
-echo     echo [ERRO] Ambiente virtual nao encontrado!
-echo     echo Por favor, execute o instalar.bat primeiro.
-echo     echo [ERRO] Ambiente virtual nao encontrado! %%LOGFILE%%
-echo     pause
-echo     exit /b 1
-echo ^)
-echo echo [OK] Ambiente virtual encontrado. Iniciando servidor... %%LOGFILE%%
-echo echo. %%LOGFILE%%
-echo venv\Scripts\python.exe -m streamlit run app.py %%LOGFILE%% 2%%^>%%1
-echo echo. %%LOGFILE%%
-echo echo ============================================================ %%LOGFILE%%
-echo echo SERVIDOR ENCERRADO %%LOGFILE%%
-echo echo ============================================================ %%LOGFILE%%
-echo pause
-) > executar.bat
+
+REM Geracao linha a linha para evitar bugs de escape do CMD
+> executar.bat echo @echo off
+>> executar.bat echo cd /d "%%~dp0"
+>> executar.bat echo title Dashboard TI - CP FANI
+>> executar.bat echo color 0B
+>> executar.bat echo cls
+>> executar.bat echo if not exist "logs" mkdir logs
+>> executar.bat echo set LOGFILE=logs\executar.log
+>> executar.bat echo echo ============================================================ ^> %%LOGFILE%%
+>> executar.bat echo echo EXECUTOR DASHBOARD-TI - Log de Execucao ^>^> %%LOGFILE%%
+>> executar.bat echo echo Data/Hora: %%date%% %%time%% ^>^> %%LOGFILE%%
+>> executar.bat echo echo ============================================================ ^>^> %%LOGFILE%%
+>> executar.bat echo echo. ^>^> %%LOGFILE%%
+>> executar.bat echo echo ============================================================
+>> executar.bat echo echo    INICIANDO DASHBOARD TI - CP FANI
+>> executar.bat echo echo ============================================================
+>> executar.bat echo echo.
+>> executar.bat echo echo O navegador abrira em instantes em: http://localhost:8501
+>> executar.bat echo echo.
+>> executar.bat echo echo Para encerrar o servidor:
+>> executar.bat echo echo   - Feche esta janela, OU
+>> executar.bat echo echo   - Pressione Ctrl+C aqui e confirme com S
+>> executar.bat echo echo.
+>> executar.bat echo echo ============================================================
+>> executar.bat echo echo.
+>> executar.bat echo if not exist "venv\Scripts\python.exe" (
+>> executar.bat echo     echo [ERRO] Ambiente virtual nao encontrado!
+>> executar.bat echo     echo Por favor, execute o instalar.bat primeiro.
+>> executar.bat echo     echo [ERRO] Ambiente virtual nao encontrado! ^>^> %%LOGFILE%%
+>> executar.bat echo     pause
+>> executar.bat echo     exit /b 1
+>> executar.bat echo )
+>> executar.bat echo echo [OK] Ambiente virtual encontrado. Iniciando servidor... ^>^> %%LOGFILE%%
+>> executar.bat echo echo. ^>^> %%LOGFILE%%
+>> executar.bat echo venv\Scripts\python.exe -m streamlit run app.py ^>^> %%LOGFILE%% 2^>^&1
+>> executar.bat echo echo. ^>^> %%LOGFILE%%
+>> executar.bat echo echo ============================================================ ^>^> %%LOGFILE%%
+>> executar.bat echo echo SERVIDOR ENCERRADO ^>^> %%LOGFILE%%
+>> executar.bat echo echo ============================================================ ^>^> %%LOGFILE%%
+>> executar.bat echo pause
+
 echo [OK] Arquivo executar.bat criado com sucesso. >> %LOGFILE%
 
 echo.

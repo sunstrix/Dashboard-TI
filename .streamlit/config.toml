@@ -1,0 +1,37 @@
+# ==============================================================================
+# CONFIGURAÇÕES GLOBAIS DO STREAMLIT
+# ==============================================================================
+# Este arquivo é lido pelo Streamlit antes mesmo do app.py carregar.
+# Ele garante que o tema escuro seja aplicado desde o primeiro frame,
+# evitando o "flash branco" comum em dashboards Streamlit.
+
+[theme]
+# Base escura para combinar com nossa paleta TI Premium
+base = "dark"
+primaryColor = "#05BFDB"           # Ciano destaque (KPIs, botões)
+backgroundColor = "#0e1117"        # Fundo principal (Streamlit Dark)
+secondaryBackgroundColor = "#161b22" # Fundo dos cards/sidebar
+textColor = "#f0f6fc"              # Texto principal (branco suave)
+font = "sans serif"
+
+[server]
+# Desabilita o menu do Streamlit (hambúrguer no canto superior direito)
+# para uma aparência mais limpa e corporativa
+headless = true
+port = 8501
+# Desabilita o prompt de email do Streamlit
+runOnSave = false
+
+[browser]
+# Desabilita a coleta de dados de uso do Streamlit (privacidade)
+gatherUsageStats = false
+
+[client]
+# Mostra o botão de "hamburger menu" apenas se necessário
+showErrorDetails = false
+toolbarMode = "minimal"
+
+[runner]
+# Otimização de performance
+magicEnabled = true
+fastReruns = true

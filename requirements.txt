@@ -8,8 +8,10 @@ openpyxl>=3.1.2
 # Visualização de Dados
 plotly>=5.22.0
 
-# Integração com Google Drive API
+# Integração com Google Drive e Sheets API
+# (google-api-python-client já inclui suporte a ambas as APIs)
 google-api-python-client>=2.130.0
+google-auth-httplib2>=0.2.0
 
 # Requisições HTTP e Retry
 requests>=2.32.0

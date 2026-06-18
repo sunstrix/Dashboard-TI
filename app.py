@@ -7,6 +7,7 @@ import pytz
 
 import config
 import drive_client
+import sheets_client
 import parser
 
 # ==============================================================================
@@ -71,6 +72,15 @@ st.markdown(f"""
         font-weight: bold;
         width: 100%;
     }}
+    /* Placeholders de desenvolvimento */
+    .dev-placeholder {{
+        background-color: {config.CORES['fundo_card']};
+        border: 2px dashed {config.CORES['borda']};
+        padding: 40px;
+        border-radius: 10px;
+        text-align: center;
+        margin: 20px 0;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -78,196 +88,420 @@ st.markdown(f"""
 # SIDEBAR: CONTROLES E FILTROS
 # ==============================================================================
 with st.sidebar:
-    st.title(f"🛠️ {config.NOME_SISTEMA}")
+    st.title(f"️ {config.NOME_SISTEMA}")
     st.markdown(f"**{config.NOME_EMPRESA}**")
     st.markdown("---")
     
     if st.button("🔄 Forçar Atualização dos Dados"):
         drive_client.carregar_snapshots_drive.clear()
+        sheets_client.carregar_planilha_gb.clear()
         st.rerun()
         
     st.markdown("### 🔍 Filtros")
-    
-# Carregamento e Processamento dos Dados
+
+# ==============================================================================
+# CARREGAMENTO DOS DADOS (AMBAS AS FONTES)
+# ==============================================================================
+# Inventário Administrativo (Drive)
 snapshots_brutos = drive_client.carregar_snapshots_drive()
+df_inventario = pd.DataFrame()
+log_duplicatas = []
 
-if not snapshots_brutos:
-    st.warning("⚠️ Nenhum dado carregado. Verifique a conexão com o Google Drive ou a API Key.")
-    st.stop()
+if snapshots_brutos:
+    df_inventario, log_duplicatas = parser.processar_todos_snapshots(snapshots_brutos)
 
-df_inventario, log_duplicatas = parser.processar_todos_snapshots(snapshots_brutos)
+# Inventário GB (Sheets)
+df_gb_bruto = sheets_client.carregar_planilha_gb()
+df_gb = pd.DataFrame()
 
-if df_inventario.empty:
-    st.warning("⚠️ Nenhum snapshot válido encontrado após o processamento.")
-    st.stop()
+if not df_gb_bruto.empty:
+    df_gb = parser.processar_planilha_gb(df_gb_bruto)
 
-# População dos Filtros na Sidebar (após ter o dataframe)
-with st.sidebar:
-    locais = sorted(df_inventario['Local'].dropna().unique().tolist())
-    filtro_local = st.multiselect("Local", options=locais, default=locais)
+# ==============================================================================
+# NAVEGAÇÃO PRINCIPAL POR ABAS
+# ==============================================================================
+tab_admin, tab_gb = st.tabs([
+    "🏢 Inventário Administrativo",
+    "📊 Inventário GB"
+])
+
+# ==============================================================================
+# ABA 1: INVENTÁRIO ADMINISTRATIVO
+# ==============================================================================
+with tab_admin:
+    if df_inventario.empty:
+        st.warning("⚠️ Nenhum dado carregado do Google Drive. Verifique a conexão ou a API Key.")
+        st.stop()
     
-    usuarios = sorted(df_inventario['Usuario'].dropna().unique().tolist())
-    filtro_usuario = st.multiselect("Usuário", options=usuarios, default=usuarios)
+    # Sub-abas do Inventário Administrativo
+    sub_tab_computadores, sub_tab_celulares, sub_tab_perifericos = st.tabs([
+        "💻 Computadores",
+        "📱 Celulares Administrativos",
+        "🖨️ Periféricos"
+    ])
     
-    windows = sorted(df_inventario['Windows'].dropna().unique().tolist())
-    filtro_windows = st.multiselect("Sistema Operacional", options=windows, default=windows)
+    # -------------------------------------------------------------------------
+    # SUB-ABA 1.1: COMPUTADORES (Conteúdo Original Preservado)
+    # -------------------------------------------------------------------------
+    with sub_tab_computadores:
+        # População dos Filtros na Sidebar (após ter o dataframe)
+        with st.sidebar:
+            locais = sorted(df_inventario['Local'].dropna().unique().tolist())
+            filtro_local = st.multiselect("Local (Administrativo)", options=locais, default=locais)
+            
+            usuarios = sorted(df_inventario['Usuario'].dropna().unique().tolist())
+            filtro_usuario = st.multiselect("Usuário", options=usuarios, default=usuarios)
+            
+            windows = sorted(df_inventario['Windows'].dropna().unique().tolist())
+            filtro_windows = st.multiselect("Sistema Operacional", options=windows, default=windows)
+            
+            filtro_processador = st.text_input("Buscar no Processador (ex: Ryzen, Intel)")
+            busca_geral = st.text_input("🔎 Busca Livre (Nome, ID, AnyDesk, TV)")
+            
+            st.markdown("---")
+            st.markdown("### 📊 Auditoria de Dados")
+            with st.expander(f"Ver {len(log_duplicatas)} duplicatas descartadas"):
+                if log_duplicatas:
+                    for log in log_duplicatas:
+                        st.caption(f"🗑️ {log}")
+                else:
+                    st.caption("✅ Nenhuma duplicata encontrada nesta varredura.")
+        
+        # Aplicação dos Filtros
+        df_filtrado = df_inventario[
+            (df_inventario['Local'].isin(filtro_local)) &
+            (df_inventario['Usuario'].isin(filtro_usuario)) &
+            (df_inventario['Windows'].isin(filtro_windows))
+        ]
+        
+        if filtro_processador:
+            df_filtrado = df_filtrado[df_filtrado['Processador'].str.contains(filtro_processador, case=False, na=False)]
+            
+        if busca_geral:
+            mask_busca = (
+                df_filtrado['Nome_Computador'].str.contains(busca_geral, case=False, na=False) |
+                df_filtrado['ID'].str.contains(busca_geral, case=False, na=False) |
+                df_filtrado['AnyDesk'].str.contains(busca_geral, case=False, na=False) |
+                df_filtrado['TeamViewer'].str.contains(busca_geral, case=False, na=False)
+            )
+            df_filtrado = df_filtrado[mask_busca]
+        
+        # KPIs (Indicadores Principais)
+        st.title(f"📊 Painel de Inventário Administrativo")
+        st.markdown(f"*Atualizado em: {datetime.now(pytz.timezone('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')} (Horário de Brasília)*")
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        total_maquinas = len(df_filtrado)
+        maquinas_ram_baixa = len(df_filtrado[(df_filtrado['Memoria_RAM_GB'] < 8.0) & (df_filtrado['Memoria_RAM_GB'] > 0)])
+        
+        amd_count = len(df_filtrado[df_filtrado['Processador'].str.contains('AMD', case=False, na=False)])
+        intel_count = len(df_filtrado[df_filtrado['Processador'].str.contains('Intel', case=False, na=False)])
+        
+        if not df_filtrado.empty:
+            data_mais_antiga = df_filtrado['Data_Snapshot'].min().strftime('%d/%m/%Y')
+        else:
+            data_mais_antiga = "N/A"
+        
+        col1.metric("Total de Máquinas", total_maquinas)
+        col2.metric("RAM < 8GB (Alerta)", maquinas_ram_baixa, delta_color="inverse")
+        col3.metric("Processadores AMD", amd_count)
+        col4.metric("Processadores Intel", intel_count)
+        col5.metric("Snapshot + Antigo", data_mais_antiga)
+        
+        st.markdown("---")
+        
+        # Gráficos Interativos (Plotly)
+        st.subheader(" Distribuição do Parque de Máquinas")
+        col_g1, col_g2, col_g3 = st.columns(3)
+        
+        with col_g1:
+            if not df_filtrado.empty:
+                fig_local = px.bar(df_filtrado, x='Local', title='Máquinas por Local', color_discrete_sequence=[config.CORES['ciano_destaque']])
+                fig_local.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                st.plotly_chart(fig_local, use_container_width=True)
+        
+        with col_g2:
+            if not df_filtrado.empty:
+                top_proc = df_filtrado['Processador'].value_counts().head(10).reset_index()
+                top_proc.columns = ['Processador', 'Quantidade']
+                fig_proc = px.bar(top_proc, x='Quantidade', y='Processador', orientation='h', title='Top 10 Processadores', color_discrete_sequence=[config.CORES['azul_petroleo']])
+                fig_proc.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                st.plotly_chart(fig_proc, use_container_width=True)
+        
+        with col_g3:
+            if not df_filtrado.empty:
+                fig_win = px.pie(df_filtrado, names='Windows', title='Distribuição Windows', hole=0.4, color_discrete_sequence=px.colors.sequential.Viridis)
+                fig_win.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                fig_win.update_traces(textposition='inside', textinfo='percent+label')
+                st.plotly_chart(fig_win, use_container_width=True)
+        
+        st.markdown("---")
+        
+        # Tabela Detalhada e Exportação
+        st.subheader("💻 Inventário Detalhado")
+        
+        # Cálculo de Status para a Tabela
+        limite_data = datetime.now(pytz.timezone('America/Sao_Paulo')) - timedelta(days=config.DIAS_LIMITE_ATRASO)
+        df_filtrado['Status'] = df_filtrado['Data_Snapshot'].apply(
+            lambda x: '🔴 Desatualizada' if x < limite_data else '🟢 OK'
+        )
+        df_filtrado['Alerta_RAM'] = df_filtrado['Memoria_RAM_GB'].apply(
+            lambda x: '⚠️ Baixa' if x < 8.0 and x > 0 else '✅ OK'
+        )
+        
+        colunas_exibir = [
+            "Status", "Local", "Usuario", "Nome_Computador", "Modelo_Sistema", 
+            "Processador", "Memoria_RAM", "Alerta_RAM", "Windows", "ID", 
+            "AnyDesk", "TeamViewer", "Data_Snapshot_Str"
+        ]
+        
+        df_display = df_filtrado[colunas_exibir].copy()
+        df_display.rename(columns={
+            "Data_Snapshot_Str": "Último Snapshot",
+            "Usuario": "Usuário",
+            "Nome_Computador": "Nome Computador",
+            "Modelo_Sistema": "Modelo Sistema",
+            "Memoria_RAM": "Memória RAM",
+            "Alerta_RAM": "Status RAM"
+        }, inplace=True)
+        
+        st.dataframe(
+            df_display,
+            column_config={
+                "Status": st.column_config.TextColumn("Status", width="small"),
+                "AnyDesk": st.column_config.TextColumn("AnyDesk", width="small"),
+                "TeamViewer": st.column_config.TextColumn("TeamViewer", width="small"),
+                "ID": st.column_config.TextColumn("Hardware ID", width="medium")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # Botões de Exportação
+        st.markdown("---")
+        st.subheader("📥 Exportar Dados Filtrados")
+        
+        col_exp1, col_exp2, _ = st.columns([1, 1, 4])
+        
+        with col_exp1:
+            csv = df_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
+            st.download_button(
+                label=" Baixar CSV",
+                data=csv,
+                file_name=f"inventario_administrativo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+        
+        with col_exp2:
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_display.to_excel(writer, index=False, sheet_name='Inventario_Admin')
+            excel_data = output.getvalue()
+            
+            st.download_button(
+                label="📊 Baixar Excel",
+                data=excel_data,
+                file_name=f"inventario_administrativo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
     
-    filtro_processador = st.text_input("Buscar no Processador (ex: Ryzen, Intel)")
-    busca_geral = st.text_input("🔎 Busca Livre (Nome, ID, AnyDesk, TV)")
+    # -------------------------------------------------------------------------
+    # SUB-ABA 1.2: CELULARES ADMINISTRATIVOS (Placeholder)
+    # -------------------------------------------------------------------------
+    with sub_tab_celulares:
+        st.title("📱 Celulares Administrativos")
+        st.markdown("---")
+        st.markdown("""
+        <div class="dev-placeholder">
+            <h2>🚧 Em Desenvolvimento</h2>
+            <p>Esta seção está em desenvolvimento.</p>
+            <p>Em breve, os celulares administrativos serão integrados aqui.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.info("💡 **Funcionalidades planejadas:**")
+        st.markdown("""
+        - 📋 Inventário completo de celulares corporativos
+        - 📊 KPIs: Total de dispositivos, distribuição por marca/modelo
+        - 🔋 Status de bateria e saúde do dispositivo
+        - 📱 Dados de suporte remoto (AnyDesk/TeamViewer Mobile)
+        - 📅 Controle de troca e ciclo de vida
+        -  Exportação para CSV/Excel
+        """)
+    
+    # -------------------------------------------------------------------------
+    # SUB-ABA 1.3: PERIFÉRICOS (Placeholder)
+    # -------------------------------------------------------------------------
+    with sub_tab_perifericos:
+        st.title("🖨️ Periféricos")
+        st.markdown("---")
+        st.markdown("""
+        <div class="dev-placeholder">
+            <h2>🚧 Em Desenvolvimento</h2>
+            <p>Esta seção está em desenvolvimento.</p>
+            <p>Em breve, periféricos de TI serão integrados aqui.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.info("💡 **Escopo planejado:**")
+        st.markdown("""
+        - 🖥️ Monitores
+        - 🖨️ Impressoras
+        - 📷 Webcams
+        - 🎧 Headsets
+        - 🔌 Docks e adaptadores
+        - 📡 Scanners
+        
+        **Exclusões:** Teclado e mouse não serão inventariados.
+        """)
+
+# ==============================================================================
+# ABA 2: INVENTÁRIO GB (GOOGLE SHEETS)
+# ==============================================================================
+with tab_gb:
+    if df_gb.empty:
+        st.warning("⚠️ Nenhum dado encontrado na planilha GB. Verifique a API Key e o compartilhamento da planilha.")
+        st.stop()
+    
+    # Filtros do Inventário GB
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔍 Filtros GB")
+    
+    locais_gb = sorted(df_gb['Local'].dropna().unique().tolist())
+    filtro_local_gb = st.sidebar.multiselect("Local (GB)", options=locais_gb, default=locais_gb)
+    
+    tipos_equip = sorted(df_gb['Tipo_Equipamento'].dropna().unique().tolist())
+    filtro_tipo_gb = st.sidebar.multiselect("Tipo de Equipamento", options=tipos_equip, default=tipos_equip)
+    
+    status_garantia = sorted(df_gb['Status_Garantia'].dropna().unique().tolist())
+    filtro_status_gb = st.sidebar.multiselect("Status de Garantia", options=status_garantia, default=status_garantia)
+    
+    # Aplicação dos Filtros GB
+    df_gb_filtrado = df_gb[
+        (df_gb['Local'].isin(filtro_local_gb)) &
+        (df_gb['Tipo_Equipamento'].isin(filtro_tipo_gb)) &
+        (df_gb['Status_Garantia'].isin(filtro_status_gb))
+    ]
+    
+    # KPIs do Inventário GB
+    st.title(f"📊 Painel de Inventário GB")
+    st.markdown(f"*Atualizado em: {datetime.now(pytz.timezone('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')} (Horário de Brasília)*")
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    total_gb = len(df_gb_filtrado)
+    total_celulares = len(df_gb_filtrado[df_gb_filtrado['Tipo_Equipamento'] == 'Celular'])
+    total_computadores = len(df_gb_filtrado[df_gb_filtrado['Tipo_Equipamento'] == 'Computador'])
+    garantia_proxima = len(df_gb_filtrado[df_gb_filtrado['Status_Garantia'] == '🟡 Próxima do Vencimento'])
+    garantia_vencida = len(df_gb_filtrado[df_gb_filtrado['Status_Garantia'] == '🔴 Vencida'])
+    
+    col1.metric("Total Equipamentos GB", total_gb)
+    col2.metric("Celulares", total_celulares)
+    col3.metric("Computadores", total_computadores)
+    col4.metric("Garantia Próxima", garantia_proxima, delta_color="inverse")
+    col5.metric("Garantia Vencida", garantia_vencida, delta_color="inverse")
     
     st.markdown("---")
-    st.markdown("### 📊 Auditoria de Dados")
-    with st.expander(f"Ver {len(log_duplicatas)} duplicatas descartadas"):
-        if log_duplicatas:
-            for log in log_duplicatas:
-                st.caption(f"🗑️ {log}")
-        else:
-            st.caption("✅ Nenhuma duplicata encontrada nesta varredura.")
-
-# ==============================================================================
-# APLICAÇÃO DOS FILTROS
-# ==============================================================================
-df_filtrado = df_inventario[
-    (df_inventario['Local'].isin(filtro_local)) &
-    (df_inventario['Usuario'].isin(filtro_usuario)) &
-    (df_inventario['Windows'].isin(filtro_windows))
-]
-
-if filtro_processador:
-    df_filtrado = df_filtrado[df_filtrado['Processador'].str.contains(filtro_processador, case=False, na=False)]
     
-if busca_geral:
-    mask_busca = (
-        df_filtrado['Nome_Computador'].str.contains(busca_geral, case=False, na=False) |
-        df_filtrado['ID'].str.contains(busca_geral, case=False, na=False) |
-        df_filtrado['AnyDesk'].str.contains(busca_geral, case=False, na=False) |
-        df_filtrado['TeamViewer'].str.contains(busca_geral, case=False, na=False)
-    )
-    df_filtrado = df_filtrado[mask_busca]
-
-# ==============================================================================
-# KPIs (INDICADORES PRINCIPAIS)
-# ==============================================================================
-st.title(f"📊 Painel de Inventário de TI")
-st.markdown(f"*Atualizado em: {datetime.now(pytz.timezone('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')} (Horário de Brasília)*")
-
-col1, col2, col3, col4, col5 = st.columns(5)
-
-total_maquinas = len(df_filtrado)
-maquinas_ram_baixa = len(df_filtrado[(df_filtrado['Memoria_RAM_GB'] < 8.0) & (df_filtrado['Memoria_RAM_GB'] > 0)])
-
-amd_count = len(df_filtrado[df_filtrado['Processador'].str.contains('AMD', case=False, na=False)])
-intel_count = len(df_filtrado[df_filtrado['Processador'].str.contains('Intel', case=False, na=False)])
-
-if not df_filtrado.empty:
-    data_mais_antiga = df_filtrado['Data_Snapshot'].min().strftime('%d/%m/%Y')
-else:
-    data_mais_antiga = "N/A"
-
-col1.metric("Total de Máquinas", total_maquinas)
-col2.metric("RAM < 8GB (Alerta)", maquinas_ram_baixa, delta_color="inverse")
-col3.metric("Processadores AMD", amd_count)
-col4.metric("Processadores Intel", intel_count)
-col5.metric("Snapshot + Antigo", data_mais_antiga)
-
-st.markdown("---")
-
-# ==============================================================================
-# GRÁFICOS INTERATIVOS (PLOTLY)
-# ==============================================================================
-st.subheader("📈 Distribuição do Parque de Máquinas")
-col_g1, col_g2, col_g3 = st.columns(3)
-
-with col_g1:
-    if not df_filtrado.empty:
-        fig_local = px.bar(df_filtrado, x='Local', title='Máquinas por Local', color_discrete_sequence=[config.CORES['ciano_destaque']])
-        fig_local.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
-        st.plotly_chart(fig_local, use_container_width=True)
-
-with col_g2:
-    if not df_filtrado.empty:
-        top_proc = df_filtrado['Processador'].value_counts().head(10).reset_index()
-        top_proc.columns = ['Processador', 'Quantidade']
-        fig_proc = px.bar(top_proc, x='Quantidade', y='Processador', orientation='h', title='Top 10 Processadores', color_discrete_sequence=[config.CORES['azul_petroleo']])
-        fig_proc.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
-        st.plotly_chart(fig_proc, use_container_width=True)
-
-with col_g3:
-    if not df_filtrado.empty:
-        fig_win = px.pie(df_filtrado, names='Windows', title='Distribuição Windows', hole=0.4, color_discrete_sequence=px.colors.sequential.Viridis)
-        fig_win.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
-        fig_win.update_traces(textposition='inside', textinfo='percent+label')
-        st.plotly_chart(fig_win, use_container_width=True)
-
-st.markdown("---")
-
-# ==============================================================================
-# TABELA DETALHADA E EXPORTAÇÃO
-# ==============================================================================
-st.subheader("💻 Inventário Detalhado")
-
-# Cálculo de Status para a Tabela
-limite_data = datetime.now(pytz.timezone('America/Sao_Paulo')) - timedelta(days=config.DIAS_LIMITE_ATRASO)
-df_filtrado['Status'] = df_filtrado['Data_Snapshot'].apply(
-    lambda x: '🔴 Desatualizada' if x < limite_data else '🟢 OK'
-)
-df_filtrado['Alerta_RAM'] = df_filtrado['Memoria_RAM_GB'].apply(
-    lambda x: '⚠️ Baixa' if x < 8.0 and x > 0 else '✅ OK'
-)
-
-colunas_exibir = [
-    "Status", "Local", "Usuario", "Nome_Computador", "Modelo_Sistema", 
-    "Processador", "Memoria_RAM", "Alerta_RAM", "Windows", "ID", 
-    "AnyDesk", "TeamViewer", "Data_Snapshot_Str"
-]
-
-df_display = df_filtrado[colunas_exibir].copy()
-df_display.rename(columns={
-    "Data_Snapshot_Str": "Último Snapshot",
-    "Usuario": "Usuário",
-    "Nome_Computador": "Nome Computador",
-    "Modelo_Sistema": "Modelo Sistema",
-    "Memoria_RAM": "Memória RAM",
-    "Alerta_RAM": "Status RAM"
-}, inplace=True)
-
-st.dataframe(
-    df_display,
-    column_config={
-        "Status": st.column_config.TextColumn("Status", width="small"),
-        "AnyDesk": st.column_config.TextColumn("AnyDesk", width="small"),
-        "TeamViewer": st.column_config.TextColumn("TeamViewer", width="small"),
-        "ID": st.column_config.TextColumn("Hardware ID", width="medium")
-    },
-    hide_index=True,
-    use_container_width=True
-)
-
-# Botões de Exportação
-st.markdown("---")
-st.subheader("📥 Exportar Dados Filtrados")
-
-col_exp1, col_exp2, _ = st.columns([1, 1, 4])
-
-with col_exp1:
-    # CORREÇÃO: Usar utf-8-sig em vez de latin-1 para suportar emojis (🟢 🔴)
-    csv = df_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-    st.download_button(
-        label="📄 Baixar CSV",
-        data=csv,
-        file_name=f"inventario_ti_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv"
-    )
-
-with col_exp2:
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_display.to_excel(writer, index=False, sheet_name='Inventario_TI')
-    excel_data = output.getvalue()
+    # Gráficos do Inventário GB
+    st.subheader("📈 Distribuição de Equipamentos GB")
+    col_g1, col_g2, col_g3 = st.columns(3)
     
-    st.download_button(
-        label="📊 Baixar Excel",
-        data=excel_data,
-        file_name=f"inventario_ti_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    with col_g1:
+        if not df_gb_filtrado.empty:
+            fig_local_gb = px.bar(df_gb_filtrado, x='Local', title='Equipamentos por Local', color_discrete_sequence=[config.CORES['ciano_destaque']])
+            fig_local_gb.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+            st.plotly_chart(fig_local_gb, use_container_width=True)
+    
+    with col_g2:
+        if not df_gb_filtrado.empty:
+            fig_tipo_gb = px.pie(df_gb_filtrado, names='Tipo_Equipamento', title='Distribuição por Tipo', hole=0.4, color_discrete_sequence=[config.CORES['azul_petroleo'], config.CORES['ciano_destaque'], config.CORES['amarelo_alerta']])
+            fig_tipo_gb.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+            fig_tipo_gb.update_traces(textposition='inside', textinfo='percent+label')
+            st.plotly_chart(fig_tipo_gb, use_container_width=True)
+    
+    with col_g3:
+        if not df_gb_filtrado.empty:
+            # Busca coluna de modelo dinamicamente
+            modelo_col = next((col for col in df_gb_filtrado.columns if 'modelo' in col.lower() or 'equipamento' in col.lower()), None)
+            if modelo_col:
+                top_modelos = df_gb_filtrado[modelo_col].value_counts().head(10).reset_index()
+                top_modelos.columns = ['Modelo', 'Quantidade']
+                fig_modelos = px.bar(top_modelos, x='Quantidade', y='Modelo', orientation='h', title='Top 10 Modelos', color_discrete_sequence=[config.CORES['verde_sucesso']])
+                fig_modelos.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                st.plotly_chart(fig_modelos, use_container_width=True)
+    
+    st.markdown("---")
+    
+    # Tabela Detalhada do Inventário GB
+    st.subheader("📋 Inventário Detalhado GB")
+    
+    # Seleciona colunas para exibição
+    colunas_gb = ['Local', 'Codigo_BPCS', 'Tipo_Equipamento', 'Status_Garantia', 'Dias_Restantes', 'Data_Garantia_Str']
+    
+    # Adiciona coluna de modelo se existir
+    modelo_col = next((col for col in df_gb_filtrado.columns if 'modelo' in col.lower() or 'equipamento' in col.lower()), None)
+    if modelo_col:
+        colunas_gb.insert(2, modelo_col)
+    
+    # Adiciona coluna de serial/IMEI se existir
+    serial_col = next((col for col in df_gb_filtrado.columns if 'serial' in col.lower() or 'imei' in col.lower()), None)
+    if serial_col:
+        colunas_gb.insert(3, serial_col)
+    
+    df_gb_display = df_gb_filtrado[colunas_gb].copy()
+    
+    # Renomeia colunas para exibição
+    rename_map = {
+        'Codigo_BPCS': 'Código BPCS',
+        'Tipo_Equipamento': 'Tipo',
+        'Status_Garantia': 'Status Garantia',
+        'Dias_Restantes': 'Dias Restantes',
+        'Data_Garantia_Str': 'Término Garantia'
+    }
+    if modelo_col:
+        rename_map[modelo_col] = 'Modelo'
+    if serial_col:
+        rename_map[serial_col] = 'Serial/IMEI'
+    
+    df_gb_display.rename(columns=rename_map, inplace=True)
+    
+    st.dataframe(
+        df_gb_display,
+        column_config={
+            "Status Garantia": st.column_config.TextColumn("Status", width="small"),
+            "Dias Restantes": st.column_config.NumberColumn("Dias", format="%d"),
+            "Código BPCS": st.column_config.TextColumn("BPCS", width="small")
+        },
+        hide_index=True,
+        use_container_width=True
     )
+    
+    # Botões de Exportação GB
+    st.markdown("---")
+    st.subheader("📥 Exportar Dados GB Filtrados")
+    
+    col_exp1, col_exp2, _ = st.columns([1, 1, 4])
+    
+    with col_exp1:
+        csv_gb = df_gb_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
+        st.download_button(
+            label="📄 Baixar CSV",
+            data=csv_gb,
+            file_name=f"inventario_gb_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
+    
+    with col_exp2:
+        output_gb = io.BytesIO()
+        with pd.ExcelWriter(output_gb, engine='openpyxl') as writer:
+            df_gb_display.to_excel(writer, index=False, sheet_name='Inventario_GB')
+        excel_data_gb = output_gb.getvalue()
+        
+        st.download_button(
+            label="📊 Baixar Excel",
+            data=excel_data_gb,
+            file_name=f"inventario_gb_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )

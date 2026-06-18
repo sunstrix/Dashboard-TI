@@ -15,6 +15,15 @@ DRIVE_FOLDER_ID = "1EldWrM7U2tP4SPoGczMJyNdIIIcCsX3d"
 GOOGLE_API_KEY = os.getenv("GOOGLE_DRIVE_API_KEY", "")
 
 # ==============================================================================
+# CONFIGURAÇÕES DO GOOGLE SHEETS (INVENTÁRIO GB)
+# ==============================================================================
+# ID da planilha pública do Google Sheets (Inventário GB - PDV)
+SHEETS_SPREADSHEET_ID = "1Vr4T1x8nKDxh5O4AcSXqlHrfqZh8WIcAD-HOm9KRHiA"
+
+# Aba da planilha que contém os dados de equipamentos GB
+SHEETS_ABA_PDV = "PDV"
+
+# ==============================================================================
 # CONFIGURAÇÕES DE CACHE E PERFORMANCE
 # ==============================================================================
 # Tempo de vida do cache do Streamlit (em segundos).
@@ -27,8 +36,11 @@ CACHE_TTL = 3600
 # Número de dias sem atualização para considerar uma máquina "Desatualizada"
 DIAS_LIMITE_ATRASO = 30
 
+# Número de dias para considerar garantia "Próxima do Vencimento"
+DIAS_LIMITE_GARANTIA_PROXIMA = 90
+
 # Nome da empresa e do sistema para exibição no cabeçalho
-NOME_EMPRESA = "Grupo NSF"
+NOME_EMPRESA = "CP Fani"
 NOME_SISTEMA = "Inventário de Hardware & Suporte"
 
 # ==============================================================================
@@ -68,3 +80,37 @@ PLOTLY_TEMPLATE_CONFIG = {
 # ==============================================================================
 # Palavras-chave que indicam início de seção no arquivo de snapshot
 SECOES_VALIDAS = ["[ID]", "[HARDWARE]", "[SUPORTE]"]
+
+# ==============================================================================
+# MAPEAMENTO BPCS → LOCAL (INVENTÁRIO GB)
+# ==============================================================================
+# Dicionário que mapeia o código BPCS da planilha para o nome oficial do Local
+MAPEAMENTO_BPCS_LOCAL = {
+    "4830": "MATRIZ",
+    "4842": "METRÓPOLE",
+    "5152": "CORAÇÃO",
+    "6105": "ASSAI",
+    "6106": "DIREITA",
+    "6110": "AROUCE",
+    "8001": "DOM JOSÉ",
+    "12055": "SÃO BENTO",
+    "11576": "D'AVÓ",
+    "12605": "COOP",
+    "12645": "LIGHT",
+    "20371": "METRÔ LUZ",
+    "21502": "BB_SBC",
+    "23000": "OUTLET",
+    "12056": "MARECHAL",
+    "14120": "ARPEL SBC",
+    "14353": "ARPEL SP",
+    "23379": "PIRAPORINHA"
+}
+
+# ==============================================================================
+# LISTA DE EXCLUSÕES DO GOOGLE DRIVE
+# ==============================================================================
+# Nomes de pastas e arquivos que devem ser ignorados durante a leitura dos snapshots
+EXCLUSOES_DRIVE = {
+    "pastas": ["Boticário"],
+    "arquivos": ["google planilhas 20260618_Visao_detalhada_e335a48d9368"]
+}

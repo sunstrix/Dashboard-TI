@@ -1,0 +1,21 @@
+# Interface e Dashboard
+streamlit>=1.35.0
+
+# Manipulação de Dados
+pandas>=2.2.0
+openpyxl>=3.1.2
+
+# Visualização de Dados
+plotly>=5.22.0
+
+# Integração com Google Drive API
+google-api-python-client>=2.130.0
+
+# Requisições HTTP e Retry
+requests>=2.32.0
+
+# Gerenciamento de Variáveis de Ambiente
+python-dotenv>=1.0.1
+
+# Fuso Horário
+pytz>=2024.1

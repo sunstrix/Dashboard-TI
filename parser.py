@@ -12,6 +12,29 @@ TZ_BR = pytz.timezone("America/Sao_Paulo")
 # PARSER DE SNAPSHOTS DO DRIVE (LÓGICA ORIGINAL PRESERVADA)
 # ==============================================================================
 
+def arredondar_ram(memoria_ram_texto):
+    """
+    Converte texto de memória RAM (ex: "7,7 GB", "31,4 GB") para float arredondado para cima.
+    Regra: 7,7GB → 8GB, 3,2GB → 4GB, 15,1GB → 16GB
+    """
+    if not memoria_ram_texto or pd.isna(memoria_ram_texto):
+        return 0.0
+    
+    try:
+        # Remove "GB" e espaços, substitui vírgula por ponto
+        memoria_str = str(memoria_ram_texto).replace("GB", "").replace("gb", "").strip()
+        memoria_str = memoria_str.replace(",", ".")
+        
+        # Converte para float
+        memoria_float = float(memoria_str)
+        
+        # Arredonda para cima (ceil)
+        import math
+        return math.ceil(memoria_float)
+        
+    except (ValueError, AttributeError):
+        return 0.0
+
 def parsear_data_geracao(texto, data_fallback_drive):
     """
     Extrai a data 'Gerado em:' do cabeçalho.
@@ -105,13 +128,8 @@ def parsear_snapshot(conteudo, nome_arquivo, data_modificacao_drive):
                     dados["Processador"] = valor
                 elif chave == "MEMORIA_RAM":
                     dados["Memoria_RAM"] = valor
-                    # Tenta converter para float para ordenação (ex: "31,4 GB" -> 31.4)
-                    match_ram = re.search(r"([\d,]+)", valor.replace(".", ","))
-                    if match_ram:
-                        try:
-                            dados["Memoria_RAM_GB"] = float(match_ram.group(1).replace(",", "."))
-                        except ValueError:
-                            pass
+                    # Usa a função de arredondamento para cima
+                    dados["Memoria_RAM_GB"] = arredondar_ram(valor)
                 elif chave == "WINDOWS":
                     dados["Windows"] = valor
                 elif chave == "ID":
@@ -144,7 +162,7 @@ def processar_todos_snapshots(lista_snapshots_brutos):
             if dados and dados["ID"]: # Só considera se tiver ID de Hardware
                 snapshots_parseados.append(dados)
         except Exception as e:
-            st.warning(f"️ Erro ao processar o arquivo {snap.get('nome_arquivo', 'Desconhecido')}: {e}")
+            st.warning(f"⚠️ Erro ao processar o arquivo {snap.get('nome_arquivo', 'Desconhecido')}: {e}")
             
     if not snapshots_parseados:
         return pd.DataFrame(), []
@@ -226,51 +244,54 @@ def parsear_data_iso(data_str):
     except Exception:
         return pd.NaT
 
-def inferir_tipo_equipamento(modelo):
-    """
-    Infere se o equipamento é um Celular ou Computador baseado no nome/modelo.
-    """
-    if pd.isna(modelo) or not isinstance(modelo, str):
-        return "Outros"
-        
-    modelo_lower = modelo.lower()
-    
-    # Palavras-chave para Celulares
-    celulares = ["iphone", "samsung", "motorola", "xiaomi", "celular", "smartphone", "galaxy", "redmi"]
-    for keyword in celulares:
-        if keyword in modelo_lower:
-            return "Celular"
-            
-    # Palavras-chave para Computadores
-    computadores = ["dell", "hp", "lenovo", "positivo", "acer", "asus", "notebook", "desktop", "pc", "computador", "thinkpad", "latitude", "inspiron"]
-    for keyword in computadores:
-        if keyword in modelo_lower:
-            return "Computador"
-            
-    return "Outros"
-
 def processar_planilha_gb(df_bruto):
     """
     Processa o DataFrame bruto lido da planilha Google Sheets (Aba PDV).
-    Aplica mapeamento BPCS, trata datas de garantia, infere tipo de equipamento
-    e calcula o status de garantia.
+    Aplica mapeamento BPCS (coluna B), lê Tipo (coluna C), Nome do Dispositivo (coluna E),
+    trata datas de garantia e calcula o status de garantia.
+    
+    Estrutura esperada da planilha:
+    - Coluna B: PDV (código BPCS)
+    - Coluna C: TIPO (Computador/Celular)
+    - Coluna E: NOME DO DISPOSITIVO
     """
     if df_bruto.empty:
         return pd.DataFrame()
         
     df = df_bruto.copy()
     
-    # 1. Mapeamento BPCS -> Local
-    # Busca coluna que contenha 'bpcs' no nome
-    bpcs_col = next((col for col in df.columns if 'bpcs' in col.lower()), None)
-    if bpcs_col:
-        df['Codigo_BPCS'] = df[bpcs_col].astype(str).str.strip()
+    # 1. BPCS - Coluna B (PDV)
+    # Busca coluna que contenha 'pdv' no nome (case-insensitive)
+    pdv_col = next((col for col in df.columns if 'pdv' in col.lower()), None)
+    if pdv_col:
+        df['Codigo_BPCS'] = df[pdv_col].astype(str).str.strip()
+        # Mapeia BPCS para Local usando o dicionário do config
         df['Local'] = df['Codigo_BPCS'].map(config.MAPEAMENTO_BPCS_LOCAL).fillna('Desconhecido')
     else:
         df['Codigo_BPCS'] = ''
         df['Local'] = 'Desconhecido'
         
-    # 2. Tratamento de Datas (Termino de Garantia)
+    # 2. TIPO - Coluna C (TIPO)
+    # Busca coluna que contenha 'tipo' no nome
+    tipo_col = next((col for col in df.columns if 'tipo' in col.lower()), None)
+    if tipo_col:
+        df['Tipo_Equipamento'] = df[tipo_col].astype(str).str.strip()
+        # Normaliza valores vazios ou NaN
+        df['Tipo_Equipamento'] = df['Tipo_Equipamento'].replace(['', 'nan', 'NaN', 'N/A', 'n/a'], 'Outros')
+    else:
+        df['Tipo_Equipamento'] = 'Outros'
+        
+    # 3. NOME DO DISPOSITIVO - Coluna E
+    # Busca coluna que contenha 'nome' e 'dispositivo' ou apenas 'nome'
+    nome_col = next((col for col in df.columns if 'dispositivo' in col.lower() or ('nome' in col.lower() and 'pdv' not in col.lower())), None)
+    if nome_col:
+        df['Nome_Dispositivo'] = df[nome_col].astype(str).str.strip()
+        # Normaliza valores vazios
+        df['Nome_Dispositivo'] = df['Nome_Dispositivo'].replace(['', 'nan', 'NaN', 'N/A', 'n/a'], '')
+    else:
+        df['Nome_Dispositivo'] = ''
+        
+    # 4. Tratamento de Datas (Termino de Garantia)
     # Busca coluna que contenha 'garantia' e 'termino' (ou apenas 'garantia')
     data_col = next((col for col in df.columns if 'garantia' in col.lower() and 'termino' in col.lower()), None)
     if not data_col:
@@ -290,7 +311,7 @@ def processar_planilha_gb(df_bruto):
         df['Data_Garantia'] = pd.NaT
         df['Dias_Restantes'] = -1
         
-    # 3. Status de Garantia
+    # 5. Status de Garantia
     def get_status_garantia(dias):
         if pd.isna(dias):
             return "⚪ Sem Info"
@@ -298,17 +319,10 @@ def processar_planilha_gb(df_bruto):
             return "🔴 Vencida"
         if dias <= config.DIAS_LIMITE_GARANTIA_PROXIMA:
             return "🟡 Próxima do Vencimento"
-        return " Válida"
+        return "🟢 Válida"
         
     df['Status_Garantia'] = df['Dias_Restantes'].apply(get_status_garantia)
     
-    # 4. Inferência de Tipo de Equipamento
-    modelo_col = next((col for col in df.columns if 'modelo' in col.lower() or 'equipamento' in col.lower()), None)
-    if modelo_col:
-        df['Tipo_Equipamento'] = df[modelo_col].apply(inferir_tipo_equipamento)
-    else:
-        df['Tipo_Equipamento'] = 'Outros'
-        
     # Formatação de data para exibição amigável
     df['Data_Garantia_Str'] = df['Data_Garantia'].dt.strftime('%d/%m/%Y')
     

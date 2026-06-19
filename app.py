@@ -88,7 +88,7 @@ st.markdown(f"""
 # SIDEBAR: CONTROLES E FILTROS
 # ==============================================================================
 with st.sidebar:
-    st.title(f"️ {config.NOME_SISTEMA}")
+    st.title(f"🛠️ {config.NOME_SISTEMA}")
     st.markdown(f"**{config.NOME_EMPRESA}**")
     st.markdown("---")
     
@@ -212,7 +212,7 @@ with tab_admin:
         st.markdown("---")
         
         # Gráficos Interativos (Plotly)
-        st.subheader(" Distribuição do Parque de Máquinas")
+        st.subheader("📈 Distribuição do Parque de Máquinas")
         col_g1, col_g2, col_g3 = st.columns(3)
         
         with col_g1:
@@ -287,7 +287,7 @@ with tab_admin:
         with col_exp1:
             csv = df_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
             st.download_button(
-                label=" Baixar CSV",
+                label="📄 Baixar CSV",
                 data=csv,
                 file_name=f"inventario_administrativo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv"
@@ -327,7 +327,7 @@ with tab_admin:
         - 🔋 Status de bateria e saúde do dispositivo
         - 📱 Dados de suporte remoto (AnyDesk/TeamViewer Mobile)
         - 📅 Controle de troca e ciclo de vida
-        -  Exportação para CSV/Excel
+        - 📥 Exportação para CSV/Excel
         """)
     
     # -------------------------------------------------------------------------
@@ -361,7 +361,7 @@ with tab_admin:
 # ==============================================================================
 with tab_gb:
     if df_gb.empty:
-        st.warning("⚠️ Nenhum dado encontrado na planilha GB. Verifique a API Key e o compartilhamento da planilha.")
+        st.warning("⚠️ Nenhum dado encontrado na planilha GB. Verifique o compartilhamento da planilha.")
         st.stop()
     
     # Filtros do Inventário GB
@@ -437,24 +437,25 @@ with tab_gb:
     # Tabela Detalhada do Inventário GB
     st.subheader("📋 Inventário Detalhado GB")
     
-    # Seleciona colunas para exibição
-    colunas_gb = ['Local', 'Codigo_BPCS', 'Tipo_Equipamento', 'Status_Garantia', 'Dias_Restantes', 'Data_Garantia_Str']
+    # Seleciona colunas para exibição - AGORA INCLUINDO Nome_Dispositivo
+    colunas_gb = ['Local', 'Codigo_BPCS', 'Nome_Dispositivo', 'Tipo_Equipamento', 'Status_Garantia', 'Dias_Restantes', 'Data_Garantia_Str']
     
     # Adiciona coluna de modelo se existir
     modelo_col = next((col for col in df_gb_filtrado.columns if 'modelo' in col.lower() or 'equipamento' in col.lower()), None)
     if modelo_col:
-        colunas_gb.insert(2, modelo_col)
+        colunas_gb.insert(3, modelo_col)
     
     # Adiciona coluna de serial/IMEI se existir
     serial_col = next((col for col in df_gb_filtrado.columns if 'serial' in col.lower() or 'imei' in col.lower()), None)
     if serial_col:
-        colunas_gb.insert(3, serial_col)
+        colunas_gb.insert(4, serial_col)
     
     df_gb_display = df_gb_filtrado[colunas_gb].copy()
     
     # Renomeia colunas para exibição
     rename_map = {
         'Codigo_BPCS': 'Código BPCS',
+        'Nome_Dispositivo': 'Nome do Dispositivo',
         'Tipo_Equipamento': 'Tipo',
         'Status_Garantia': 'Status Garantia',
         'Dias_Restantes': 'Dias Restantes',
@@ -472,7 +473,8 @@ with tab_gb:
         column_config={
             "Status Garantia": st.column_config.TextColumn("Status", width="small"),
             "Dias Restantes": st.column_config.NumberColumn("Dias", format="%d"),
-            "Código BPCS": st.column_config.TextColumn("BPCS", width="small")
+            "Código BPCS": st.column_config.TextColumn("BPCS", width="small"),
+            "Nome do Dispositivo": st.column_config.TextColumn("Nome Dispositivo", width="medium")
         },
         hide_index=True,
         use_container_width=True

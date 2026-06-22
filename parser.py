@@ -104,31 +104,35 @@ def parsear_snapshot(conteudo, nome_arquivo, data_modificacao_drive):
             chave = chave.strip().replace(" ", "_").upper()
             valor = valor.strip()
             
+            # CORREÇÃO BUG #2: Remove parênteses e conteúdo para matching flexível
+            # Transforma "ID_(MAC/PROC)" em "ID" para compatibilidade com snapshots antigos e novos
+            chave_normalizada = re.sub(r'\s*\([^)]*\)', '', chave).strip()
+            
             if secao_atual == "ID":
-                if chave == "LOCAL":
+                if chave_normalizada == "LOCAL":
                     dados["Local"] = valor
-                elif chave in ("USUARIO", "USUÁRIO"):
+                elif chave_normalizada in ("USUARIO", "USUÁRIO"):
                     dados["Usuario"] = valor
                     
             elif secao_atual == "HARDWARE":
-                if chave == "NOME_COMPUTADOR":
+                if chave_normalizada == "NOME_COMPUTADOR":
                     dados["Nome_Computador"] = valor
-                elif chave == "MODELO_SISTEMA":
+                elif chave_normalizada == "MODELO_SISTEMA":
                     dados["Modelo_Sistema"] = valor
-                elif chave == "PROCESSADOR":
+                elif chave_normalizada == "PROCESSADOR":
                     dados["Processador"] = valor
-                elif chave == "MEMORIA_RAM":
+                elif chave_normalizada == "MEMORIA_RAM":
                     dados["Memoria_RAM"] = valor
                     dados["Memoria_RAM_GB"] = arredondar_ram(valor)
-                elif chave == "WINDOWS":
+                elif chave_normalizada == "WINDOWS":
                     dados["Windows"] = valor
-                elif chave == "ID":
+                elif chave_normalizada == "ID":
                     dados["ID"] = valor
                     
             elif secao_atual == "SUPORTE":
-                if chave == "ANYDESK":
+                if chave_normalizada == "ANYDESK":
                     dados["AnyDesk"] = valor
-                elif chave == "TEAMVIEWER":
+                elif chave_normalizada == "TEAMVIEWER":
                     dados["TeamViewer"] = valor
 
     return dados

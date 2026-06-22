@@ -119,3 +119,10 @@ EXCLUSOES_DRIVE = {
     "pastas": ["Boticário"],
     "arquivos": ["google planilhas 20260618_Visao_detalhada_e335a48d9368"]
 }
+
+# ==============================================================================
+# CONFIGURAÇÕES DO INVENTÁRIO GB — PERIFÉRICOS (MONITORES)
+# ==============================================================================
+# ID da pasta no Google Drive que contém os snapshots de periféricos do GB.
+# URL da pasta: https://drive.google.com/drive/u/1/folders/19LF-SGi7TZ2dEA3FjiyOoGMK0O93DIGJ
+DRIVE_FOLDER_ID_GB_PERIFERICOS = "19LF-SGi7TZ2dEA3FjiyOoGMK0O93DIGJ"

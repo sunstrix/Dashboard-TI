@@ -76,49 +76,24 @@ def _listar_arquivos_drive():
 
 def _baixar_arquivo_drive(file_id, max_retries=3):
     """
-    Baixa o conteúdo de um arquivo de texto do Drive usando MediaIoBaseDownload.
-    Método oficial da API do Google para download de arquivos.
+    Baixa o conteúdo de um arquivo de texto do Drive via URL de export público.
+    Funciona para arquivos compartilhados como 'Qualquer pessoa com o link'.
     Inclui retry automático com backoff exponencial em caso de falha.
     """
-    service = _get_drive_service()
+    url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
     
     for tentativa in range(max_retries):
         try:
-            # Cria o request de download usando a API oficial
-            request = service.files().get_media(fileId=file_id)
-            
-            # Buffer para receber o conteúdo do arquivo
-            buffer = io.BytesIO()
-            
-            # Executa o download usando MediaIoBaseDownload
-            downloader = MediaIoBaseDownload(buffer, request)
-            done = False
-            while not done:
-                status, done = downloader.next_chunk()
-            
-            # Obtém o conteúdo do buffer
-            conteudo_bytes = buffer.getvalue()
+            response = requests.get(url, timeout=30, allow_redirects=True)
+            response.raise_for_status()
             
             # Tenta decodificar como UTF-8, fallback para latin-1 (comum em PT-BR Windows)
             try:
-                return conteudo_bytes.decode('utf-8')
+                return response.content.decode('utf-8')
             except UnicodeDecodeError:
-                return conteudo_bytes.decode('latin-1')
+                return response.content.decode('latin-1')
                 
-        except HttpError as e:
-            # Erro HTTP da API do Google (403, 404, etc)
-            if tentativa == max_retries - 1:
-                if e.resp.status == 403:
-                    raise ValueError(f"Erro 403: Permissão negada para baixar arquivo {file_id}. Verifique se o arquivo está compartilhado como 'Qualquer pessoa com o link'.")
-                elif e.resp.status == 404:
-                    raise ValueError(f"Erro 404: Arquivo {file_id} não encontrado.")
-                else:
-                    raise ValueError(f"Erro HTTP ao baixar arquivo: {e}")
-            # Se ainda há tentativas, aguarda com backoff exponencial
-            time.sleep(2 ** tentativa)  # Backoff exponencial: 1s, 2s, 4s...
-            
-        except Exception as e:
-            # Qualquer outro erro (rede, timeout, etc)
+        except requests.exceptions.RequestException as e:
             if tentativa == max_retries - 1:
                 raise
             time.sleep(2 ** tentativa)  # Backoff exponencial: 1s, 2s, 4s...

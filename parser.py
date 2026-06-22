@@ -21,17 +21,11 @@ def arredondar_ram(memoria_ram_texto):
         return 0.0
     
     try:
-        # Remove "GB" e espaços, substitui vírgula por ponto
         memoria_str = str(memoria_ram_texto).replace("GB", "").replace("gb", "").strip()
         memoria_str = memoria_str.replace(",", ".")
-        
-        # Converte para float
         memoria_float = float(memoria_str)
-        
-        # Arredonda para cima (ceil)
         import math
         return math.ceil(memoria_float)
-        
     except (ValueError, AttributeError):
         return 0.0
 
@@ -41,7 +35,6 @@ def parsear_data_geracao(texto, data_fallback_drive):
     Se não encontrar ou falhar, usa a data de modificação do Drive.
     Retorna um objeto datetime timezone-aware (UTC-3).
     """
-    # Tenta encontrar "Gerado em: DD/MM/AAAA HH:MM:SS"
     match = re.search(r"Gerado em:\s*(\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2})", texto, re.IGNORECASE)
     if match:
         try:
@@ -51,17 +44,14 @@ def parsear_data_geracao(texto, data_fallback_drive):
         except ValueError:
             pass
             
-    # Fallback para data do Drive (formato ISO 8601: 2026-06-18T14:59:00.000Z)
     if data_fallback_drive:
         try:
-            # Remove o Z e parseia
             data_str = data_fallback_drive.replace('Z', '+00:00')
             dt_utc = datetime.fromisoformat(data_str)
             return dt_utc.astimezone(TZ_BR)
         except Exception:
             pass
             
-    # Último fallback: agora
     return datetime.now(TZ_BR)
 
 def parsear_snapshot(conteudo, nome_arquivo, data_modificacao_drive):
@@ -95,7 +85,6 @@ def parsear_snapshot(conteudo, nome_arquivo, data_modificacao_drive):
         if not linha or linha.startswith("="):
             continue
             
-        # Identifica mudança de seção
         linha_upper = linha.upper()
         if linha_upper == "[ID]":
             secao_atual = "ID"
@@ -106,12 +95,10 @@ def parsear_snapshot(conteudo, nome_arquivo, data_modificacao_drive):
         elif linha_upper == "[SUPORTE]":
             secao_atual = "SUPORTE"
             continue
-        # Novas seções de periféricos (não processadas aqui, serão tratadas separadamente)
         elif "PERIFÉRICOS" in linha_upper or "PERIFERICOS" in linha_upper:
             secao_atual = "PERIFERICOS"
             continue
             
-        # Extrai chave e valor (tolerante a espaçamentos, divide apenas no primeiro ":")
         if ":" in linha:
             chave, valor = linha.split(":", 1)
             chave = chave.strip().replace(" ", "_").upper()
@@ -132,7 +119,6 @@ def parsear_snapshot(conteudo, nome_arquivo, data_modificacao_drive):
                     dados["Processador"] = valor
                 elif chave == "MEMORIA_RAM":
                     dados["Memoria_RAM"] = valor
-                    # Usa a função de arredondamento para cima
                     dados["Memoria_RAM_GB"] = arredondar_ram(valor)
                 elif chave == "WINDOWS":
                     dados["Windows"] = valor
@@ -151,19 +137,12 @@ def processar_todos_snapshots(lista_snapshots_brutos):
     """
     Recebe a lista de dicionários brutos do drive_client,
     faz o parsing de cada um e aplica a REGRA DE DEDUPLICAÇÃO.
-    
-    Regra: Manter apenas o snapshot mais recente para cada ID de Hardware.
-    Critério de data: Campo "Gerado em:" (Data_Snapshot).
-    
-    Retorna:
-    - df_final: DataFrame com os dados únicos e deduplicados.
-    - log_duplicatas: Lista de strings para auditoria de descarte.
     """
     snapshots_parseados = []
     for snap in lista_snapshots_brutos:
         try:
             dados = parsear_snapshot(snap["conteudo"], snap["nome_arquivo"], snap["data_modificacao_drive"])
-            if dados and dados["ID"]: # Só considera se tiver ID de Hardware
+            if dados and dados["ID"]:
                 snapshots_parseados.append(dados)
         except Exception as e:
             st.warning(f"⚠️ Erro ao processar o arquivo {snap.get('nome_arquivo', 'Desconhecido')}: {e}")
@@ -172,19 +151,14 @@ def processar_todos_snapshots(lista_snapshots_brutos):
         return pd.DataFrame(), []
         
     df = pd.DataFrame(snapshots_parseados)
-    
-    # Ordena por Data_Snapshot decrescente (mais recente primeiro)
     df = df.sort_values(by="Data_Snapshot", ascending=False)
     
     log_duplicatas = []
-    
-    # Deduplicação: mantém a primeira ocorrência (mais recente) de cada ID
     df_antes = len(df)
     df_final = df.drop_duplicates(subset=["ID"], keep="first")
     df_depois = len(df_final)
     
     if df_antes > df_depois:
-        # Gera log das duplicatas descartadas
         duplicatas = df[df.duplicated(subset=["ID"], keep="first")]
         for _, row in duplicatas.iterrows():
             log_duplicatas.append(
@@ -192,17 +166,14 @@ def processar_todos_snapshots(lista_snapshots_brutos):
                 f"Data: {row['Data_Snapshot'].strftime('%d/%m/%Y %H:%M')}"
             )
             
-    # Formata a data para exibição amigável na tabela
     df_final["Data_Snapshot_Str"] = df_final["Data_Snapshot"].dt.strftime("%d/%m/%Y %H:%M")
     
-    # Reordena colunas para a tabela
     colunas_ordem = [
         "Local", "Usuario", "Nome_Computador", "Modelo_Sistema", "Processador", 
         "Memoria_RAM", "Memoria_RAM_GB", "Windows", "ID", "AnyDesk", "TeamViewer", 
         "Data_Snapshot", "Data_Snapshot_Str", "Nome_Arquivo"
     ]
     
-    # Garante que todas as colunas existam (caso algum snapshot esteja incompleto)
     for col in colunas_ordem:
         if col not in df_final.columns:
             df_final[col] = ""
@@ -214,19 +185,19 @@ def processar_todos_snapshots(lista_snapshots_brutos):
 
 
 # ==============================================================================
-# PARSER DE PERIFÉRICOS (NOVAS FUNÇÕES ADICIONADAS)
+# PARSER DE PERIFÉRICOS (FUNÇÕES REFINADAS - MAIS TOLERANTES)
 # ==============================================================================
 
 def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
     """
     Extrai monitores da seção 'PERIFÉRICOS — MONITORES' do snapshot.
-    Retorna lista de dicionários com dados dos monitores.
+    Regex refinada para aceitar variações de travessão (— ou -).
     """
     monitores = []
     
-    # Busca a seção de monitores
+    # Regex tolerante: aceita tanto "—" (em dash) quanto "-" (hífen)
     match_monitores = re.search(
-        r'PERIFÉRICOS\s*—\s*MONITORES\s*\n\s*={5,}\s*\n(.*?)(?=\n\s*={5,}\s*\n\s*PERIFÉRICOS|\Z)',
+        r'PERIF[ÉE]RICOS\s*[-—]\s*MONITORES\s*\n\s*={5,}\s*\n(.*?)(?=\n\s*={5,}\s*\n|\Z)',
         conteudo,
         re.DOTALL | re.IGNORECASE
     )
@@ -236,7 +207,7 @@ def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
     
     conteudo_monitores = match_monitores.group(1)
     
-    # Encontra todos os monitores (Monitor 1:, Monitor 2:, etc.)
+    # Encontra todos os monitores
     monitores_matches = re.finditer(
         r'Monitor\s+\d+:\s*\n(.*?)(?=\n\s*Monitor\s+\d+:|\Z)',
         conteudo_monitores,
@@ -246,15 +217,14 @@ def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
     for match in monitores_matches:
         bloco_monitor = match.group(1)
         
-        # Extrai modelo
         modelo_match = re.search(r'Modelo\s*:\s*(.+)', bloco_monitor)
         modelo = modelo_match.group(1).strip() if modelo_match else ""
         
-        # Extrai número de série
-        serial_match = re.search(r'N[º°]\s*de\s*S[ée]rie\s*:\s*(.+)', bloco_monitor)
+        # Regex tolerante: aceita "Nº", "N°", "N." e variações de "Série"
+        serial_match = re.search(r'N[º°\.]?\s*de\s*S[ée]rie\s*:\s*(.+)', bloco_monitor)
         serial = serial_match.group(1).strip() if serial_match else ""
         
-        if modelo:  # Só adiciona se tiver modelo
+        if modelo:
             monitores.append({
                 "Local": local,
                 "Usuario": usuario,
@@ -268,14 +238,12 @@ def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
 def parsear_impressoras_do_snapshot(conteudo, local, data_snapshot):
     """
     Extrai impressoras da seção 'PERIFÉRICOS — IMPRESSORAS' do snapshot.
-    Retorna lista de dicionários com dados das impressoras.
     FILTRA: Apenas impressoras com número de série (ignora as sem serial).
     """
     impressoras = []
     
-    # Busca a seção de impressoras
     match_impressoras = re.search(
-        r'PERIFÉRICOS\s*—\s*IMPRESSORAS\s*\n\s*={5,}\s*\n(.*?)(?=\n\s*={5,}\s*\n|\Z)',
+        r'PERIF[ÉE]RICOS\s*[-—]\s*IMPRESSORAS\s*\n\s*={5,}\s*\n(.*?)(?=\n\s*={5,}\s*\n|\Z)',
         conteudo,
         re.DOTALL | re.IGNORECASE
     )
@@ -285,7 +253,6 @@ def parsear_impressoras_do_snapshot(conteudo, local, data_snapshot):
     
     conteudo_impressoras = match_impressoras.group(1)
     
-    # Encontra todas as impressoras (Impressora 1:, Impressora 2:, etc.)
     impressoras_matches = re.finditer(
         r'Impressora\s+\d+:\s*\n(.*?)(?=\n\s*Impressora\s+\d+:|\Z)',
         conteudo_impressoras,
@@ -295,19 +262,15 @@ def parsear_impressoras_do_snapshot(conteudo, local, data_snapshot):
     for match in impressoras_matches:
         bloco_impressora = match.group(1)
         
-        # Extrai nome
         nome_match = re.search(r'Nome\s*:\s*(.+)', bloco_impressora)
         nome = nome_match.group(1).strip() if nome_match else ""
         
-        # Extrai número de série (Serial SNMP)
-        serial_match = re.search(r'Serial\s*\(SNMP\)\s*:\s*(.+)', bloco_impressora)
+        serial_match = re.search(r'Serial\s*\(?SNMP\)?\s*:\s*(.+)', bloco_impressora)
         serial = serial_match.group(1).strip() if serial_match else ""
         
-        # Extrai modelo (Modelo SNMP)
-        modelo_match = re.search(r'Modelo\s*\(SNMP\)\s*:\s*(.+)', bloco_impressora)
+        modelo_match = re.search(r'Modelo\s*\(?SNMP\)?\s*:\s*(.+)', bloco_impressora)
         modelo = modelo_match.group(1).strip() if modelo_match else ""
         
-        # Extrai IP
         ip_match = re.search(r'IP\s*:\s*(.+)', bloco_impressora)
         ip = ip_match.group(1).strip() if ip_match else ""
         
@@ -315,7 +278,7 @@ def parsear_impressoras_do_snapshot(conteudo, local, data_snapshot):
         if not serial:
             continue
         
-        if nome:  # Só adiciona se tiver nome
+        if nome:
             impressoras.append({
                 "Local": local,
                 "Nome_Impressora": nome,
@@ -330,20 +293,17 @@ def parsear_impressoras_do_snapshot(conteudo, local, data_snapshot):
 def processar_perifericos(lista_snapshots_brutos):
     """
     Processa todos os snapshots e extrai monitores e impressoras.
-    Aplica deduplicação:
-    - Monitores: por Serial_Monitor (mantém o mais recente)
-    - Impressoras: por Serial_Impressora (mantém o mais recente)
-    
-    Retorna:
-    - df_monitores: DataFrame com monitores únicos
-    - df_impressoras: DataFrame com impressoras únicas
+    Com proteções adicionais para evitar erros em DataFrames vazios.
     """
     todos_monitores = []
     todas_impressoras = []
     
+    # Proteção: se lista estiver vazia ou None, retorna DataFrames vazios
+    if not lista_snapshots_brutos:
+        return pd.DataFrame(), pd.DataFrame()
+    
     for snap in lista_snapshots_brutos:
         try:
-            # Primeiro, parseia o snapshot completo para obter Local, Usuário e Data
             dados_basicos = parsear_snapshot(snap["conteudo"], snap["nome_arquivo"], snap["data_modificacao_drive"])
             
             if not dados_basicos or not dados_basicos["ID"]:
@@ -353,36 +313,36 @@ def processar_perifericos(lista_snapshots_brutos):
             usuario = dados_basicos["Usuario"]
             data_snapshot = dados_basicos["Data_Snapshot"]
             
-            # Extrai monitores
             monitores = parsear_monitores_do_snapshot(snap["conteudo"], local, usuario, data_snapshot)
             todos_monitores.extend(monitores)
             
-            # Extrai impressoras
             impressoras = parsear_impressoras_do_snapshot(snap["conteudo"], local, data_snapshot)
             todas_impressoras.extend(impressoras)
             
         except Exception as e:
             st.warning(f"⚠️ Erro ao processar periféricos do arquivo {snap.get('nome_arquivo', 'Desconhecido')}: {e}")
     
-    # Processa Monitores
+    # Processa Monitores com proteção
     df_monitores = pd.DataFrame()
     if todos_monitores:
         df_monitores = pd.DataFrame(todos_monitores)
-        df_monitores = df_monitores.sort_values(by="Data_Snapshot", ascending=False)
-        # Deduplica por Serial_Monitor (mantém o mais recente)
-        df_monitores = df_monitores.drop_duplicates(subset=["Serial_Monitor"], keep="first")
-        df_monitores["Data_Snapshot_Str"] = df_monitores["Data_Snapshot"].dt.strftime("%d/%m/%Y %H:%M")
-        df_monitores = df_monitores.reset_index(drop=True)
+        if not df_monitores.empty and 'Data_Snapshot' in df_monitores.columns:
+            df_monitores = df_monitores.sort_values(by="Data_Snapshot", ascending=False)
+            if 'Serial_Monitor' in df_monitores.columns:
+                df_monitores = df_monitores.drop_duplicates(subset=["Serial_Monitor"], keep="first")
+            df_monitores["Data_Snapshot_Str"] = df_monitores["Data_Snapshot"].dt.strftime("%d/%m/%Y %H:%M")
+            df_monitores = df_monitores.reset_index(drop=True)
     
-    # Processa Impressoras
+    # Processa Impressoras com proteção
     df_impressoras = pd.DataFrame()
     if todas_impressoras:
         df_impressoras = pd.DataFrame(todas_impressoras)
-        df_impressoras = df_impressoras.sort_values(by="Data_Snapshot", ascending=False)
-        # Deduplica por Serial_Impressora (mantém o mais recente)
-        df_impressoras = df_impressoras.drop_duplicates(subset=["Serial_Impressora"], keep="first")
-        df_impressoras["Data_Snapshot_Str"] = df_impressoras["Data_Snapshot"].dt.strftime("%d/%m/%Y %H:%M")
-        df_impressoras = df_impressoras.reset_index(drop=True)
+        if not df_impressoras.empty and 'Data_Snapshot' in df_impressoras.columns:
+            df_impressoras = df_impressoras.sort_values(by="Data_Snapshot", ascending=False)
+            if 'Serial_Impressora' in df_impressoras.columns:
+                df_impressoras = df_impressoras.drop_duplicates(subset=["Serial_Impressora"], keep="first")
+            df_impressoras["Data_Snapshot_Str"] = df_impressoras["Data_Snapshot"].dt.strftime("%d/%m/%Y %H:%M")
+            df_impressoras = df_impressoras.reset_index(drop=True)
     
     return df_monitores, df_impressoras
 
@@ -394,29 +354,24 @@ def processar_perifericos(lista_snapshots_brutos):
 def parsear_data_iso(data_str):
     """
     Converte strings de data para objetos datetime do pandas.
-    Suporta formatos ISO (YYYY-MM-DD) e Brasileiro (DD/MM/YYYY).
-    Retorna NaT se a conversão falhar.
     """
     if pd.isna(data_str) or not isinstance(data_str, str):
         return pd.NaT
         
     data_str = data_str.strip()
     
-    # Formato ISO: YYYY-MM-DD
     if re.match(r"^\d{4}-\d{2}-\d{2}$", data_str):
         try:
             return pd.to_datetime(data_str, format="%Y-%m-%d")
         except ValueError:
             pass
             
-    # Formato Brasileiro: DD/MM/YYYY
     if re.match(r"^\d{2}/\d{2}/\d{4}$", data_str):
         try:
             return pd.to_datetime(data_str, format="%d/%m/%Y")
         except ValueError:
             pass
             
-    # Fallback genérico do pandas
     try:
         return pd.to_datetime(data_str, dayfirst=True)
     except Exception:
@@ -425,15 +380,12 @@ def parsear_data_iso(data_str):
 def processar_planilha_gb(df_bruto):
     """
     Processa o DataFrame bruto lido da planilha Google Sheets (Aba PDV).
-    Aplica mapeamento BPCS (coluna B), lê Tipo (coluna C), Nome do Dispositivo (coluna E),
-    trata datas de garantia e calcula o status de garantia.
     """
     if df_bruto.empty:
         return pd.DataFrame()
         
     df = df_bruto.copy()
     
-    # 1. BPCS - Coluna B (PDV)
     pdv_col = next((col for col in df.columns if 'pdv' in col.lower()), None)
     if pdv_col:
         df['Codigo_BPCS'] = df[pdv_col].astype(str).str.strip()
@@ -442,7 +394,6 @@ def processar_planilha_gb(df_bruto):
         df['Codigo_BPCS'] = ''
         df['Local'] = 'Desconhecido'
         
-    # 2. TIPO - Coluna C (TIPO)
     tipo_col = next((col for col in df.columns if 'tipo' in col.lower()), None)
     if tipo_col:
         df['Tipo_Equipamento'] = df[tipo_col].astype(str).str.strip()
@@ -450,7 +401,6 @@ def processar_planilha_gb(df_bruto):
     else:
         df['Tipo_Equipamento'] = 'Outros'
         
-    # 3. NOME DO DISPOSITIVO - Coluna E
     nome_col = next((col for col in df.columns if 'dispositivo' in col.lower() or ('nome' in col.lower() and 'pdv' not in col.lower())), None)
     if nome_col:
         df['Nome_Dispositivo'] = df[nome_col].astype(str).str.strip()
@@ -458,7 +408,6 @@ def processar_planilha_gb(df_bruto):
     else:
         df['Nome_Dispositivo'] = ''
         
-    # 4. Tratamento de Datas (Termino de Garantia)
     data_col = next((col for col in df.columns if 'garantia' in col.lower() and 'termino' in col.lower()), None)
     if not data_col:
         data_col = next((col for col in df.columns if 'garantia' in col.lower()), None)
@@ -473,7 +422,6 @@ def processar_planilha_gb(df_bruto):
         df['Data_Garantia'] = pd.NaT
         df['Dias_Restantes'] = -1
         
-    # 5. Status de Garantia
     def get_status_garantia(dias):
         if pd.isna(dias):
             return "⚪ Sem Info"
@@ -484,8 +432,6 @@ def processar_planilha_gb(df_bruto):
         return "🟢 Válida"
         
     df['Status_Garantia'] = df['Dias_Restantes'].apply(get_status_garantia)
-    
-    # Formatação de data para exibição amigável
     df['Data_Garantia_Str'] = df['Data_Garantia'].dt.strftime('%d/%m/%Y')
     
     return df

@@ -1,8 +1,10 @@
 import streamlit as st
 import requests
 import time
+import io
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseDownload
 import config
 
 def _get_drive_service():
@@ -74,26 +76,52 @@ def _listar_arquivos_drive():
 
 def _baixar_arquivo_drive(file_id, max_retries=3):
     """
-    Baixa o conteúdo de um arquivo de texto do Drive usando requests.
+    Baixa o conteúdo de um arquivo de texto do Drive usando MediaIoBaseDownload.
+    Método oficial da API do Google para download de arquivos.
     Inclui retry automático com backoff exponencial em caso de falha.
     """
-    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={config.GOOGLE_API_KEY}"
+    service = _get_drive_service()
     
     for tentativa in range(max_retries):
         try:
-            response = requests.get(url, timeout=15)
-            response.raise_for_status()
+            # Cria o request de download usando a API oficial
+            request = service.files().get_media(fileId=file_id)
+            
+            # Buffer para receber o conteúdo do arquivo
+            buffer = io.BytesIO()
+            
+            # Executa o download usando MediaIoBaseDownload
+            downloader = MediaIoBaseDownload(buffer, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+            
+            # Obtém o conteúdo do buffer
+            conteudo_bytes = buffer.getvalue()
             
             # Tenta decodificar como UTF-8, fallback para latin-1 (comum em PT-BR Windows)
             try:
-                return response.content.decode('utf-8')
+                return conteudo_bytes.decode('utf-8')
             except UnicodeDecodeError:
-                return response.content.decode('latin-1')
+                return conteudo_bytes.decode('latin-1')
                 
-        except requests.exceptions.RequestException as e:
+        except HttpError as e:
+            # Erro HTTP da API do Google (403, 404, etc)
+            if tentativa == max_retries - 1:
+                if e.resp.status == 403:
+                    raise ValueError(f"Erro 403: Permissão negada para baixar arquivo {file_id}. Verifique se o arquivo está compartilhado como 'Qualquer pessoa com o link'.")
+                elif e.resp.status == 404:
+                    raise ValueError(f"Erro 404: Arquivo {file_id} não encontrado.")
+                else:
+                    raise ValueError(f"Erro HTTP ao baixar arquivo: {e}")
+            # Se ainda há tentativas, aguarda com backoff exponencial
+            time.sleep(2 ** tentativa)  # Backoff exponencial: 1s, 2s, 4s...
+            
+        except Exception as e:
+            # Qualquer outro erro (rede, timeout, etc)
             if tentativa == max_retries - 1:
                 raise
-            time.sleep(2 ** tentativa) # Backoff exponencial: 1s, 2s, 4s...
+            time.sleep(2 ** tentativa)  # Backoff exponencial: 1s, 2s, 4s...
 
 @st.cache_data(ttl=config.CACHE_TTL, show_spinner="📡 Conectando ao Google Drive e baixando snapshots...")
 def carregar_snapshots_drive():

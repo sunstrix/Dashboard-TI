@@ -100,15 +100,22 @@ with st.sidebar:
     st.markdown("### 🔍 Filtros")
 
 # ==============================================================================
-# CARREGAMENTO DOS DADOS (AMBAS AS FONTES)
+# CARREGAMENTO DOS DADOS (TODAS AS FONTES)
 # ==============================================================================
-# Inventário Administrativo (Drive)
+# Inventário Administrativo (Drive - Computadores)
 snapshots_brutos = drive_client.carregar_snapshots_drive()
 df_inventario = pd.DataFrame()
 log_duplicatas = []
 
 if snapshots_brutos:
     df_inventario, log_duplicatas = parser.processar_todos_snapshots(snapshots_brutos)
+
+# Periféricos (Drive - Monitores e Impressoras)
+df_monitores = pd.DataFrame()
+df_impressoras = pd.DataFrame()
+
+if snapshots_brutos:
+    df_monitores, df_impressoras = parser.processar_perifericos(snapshots_brutos)
 
 # Inventário GB (Sheets)
 df_gb_bruto = sheets_client.carregar_planilha_gb()
@@ -331,30 +338,261 @@ with tab_admin:
         """)
     
     # -------------------------------------------------------------------------
-    # SUB-ABA 1.3: PERIFÉRICOS (Placeholder)
+    # SUB-ABA 1.3: PERIFÉRICOS (FUNCIONAL - Monitores e Impressoras)
     # -------------------------------------------------------------------------
     with sub_tab_perifericos:
         st.title("🖨️ Periféricos")
+        st.markdown(f"*Atualizado em: {datetime.now(pytz.timezone('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')} (Horário de Brasília)*")
         st.markdown("---")
-        st.markdown("""
-        <div class="dev-placeholder">
-            <h2>🚧 Em Desenvolvimento</h2>
-            <p>Esta seção está em desenvolvimento.</p>
-            <p>Em breve, periféricos de TI serão integrados aqui.</p>
-        </div>
-        """, unsafe_allow_html=True)
         
-        st.info("💡 **Escopo planejado:**")
-        st.markdown("""
-        - 🖥️ Monitores
-        - 🖨️ Impressoras
-        - 📷 Webcams
-        - 🎧 Headsets
-        - 🔌 Docks e adaptadores
-        - 📡 Scanners
+        # Sub-sub-abas: Monitores e Impressoras
+        sub_tab_monitores, sub_tab_impressoras = st.tabs([
+            "🖥️ Monitores",
+            "🖨️ Impressoras"
+        ])
         
-        **Exclusões:** Teclado e mouse não serão inventariados.
-        """)
+        # ======================================================================
+        # SUB-SUB-ABA: MONITORES
+        # ======================================================================
+        with sub_tab_monitores:
+            if df_monitores.empty:
+                st.info("ℹ️ Nenhum monitor encontrado nos snapshots. Aguarde a próxima atualização dos scripts de coleta.")
+            else:
+                # Filtros de Monitores
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    locais_mon = sorted(df_monitores['Local'].dropna().unique().tolist())
+                    filtro_local_mon = st.multiselect("Local", options=locais_mon, default=locais_mon, key="filtro_local_mon")
+                with col_f2:
+                    busca_mon = st.text_input("🔎 Buscar (Modelo, Serial, Usuário)", key="busca_mon")
+                
+                # Aplicação dos Filtros
+                df_mon_filtrado = df_monitores[df_monitores['Local'].isin(filtro_local_mon)]
+                
+                if busca_mon:
+                    mask_mon = (
+                        df_mon_filtrado['Modelo_Monitor'].str.contains(busca_mon, case=False, na=False) |
+                        df_mon_filtrado['Serial_Monitor'].str.contains(busca_mon, case=False, na=False) |
+                        df_mon_filtrado['Usuario'].str.contains(busca_mon, case=False, na=False)
+                    )
+                    df_mon_filtrado = df_mon_filtrado[mask_mon]
+                
+                # KPIs de Monitores
+                st.subheader("📊 Visão Geral dos Monitores")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total de Monitores", len(df_mon_filtrado))
+                col2.metric("Locais com Monitores", df_mon_filtrado['Local'].nunique())
+                col3.metric("Modelos Diferentes", df_mon_filtrado['Modelo_Monitor'].nunique())
+                
+                st.markdown("---")
+                
+                # Gráficos de Monitores
+                st.subheader("📈 Distribuição")
+                col_g1, col_g2 = st.columns(2)
+                
+                with col_g1:
+                    if not df_mon_filtrado.empty:
+                        fig_mon_local = px.bar(
+                            df_mon_filtrado, 
+                            x='Local', 
+                            title='Monitores por Local', 
+                            color_discrete_sequence=[config.CORES['ciano_destaque']]
+                        )
+                        fig_mon_local.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                        st.plotly_chart(fig_mon_local, use_container_width=True)
+                
+                with col_g2:
+                    if not df_mon_filtrado.empty:
+                        top_modelos_mon = df_mon_filtrado['Modelo_Monitor'].value_counts().head(10).reset_index()
+                        top_modelos_mon.columns = ['Modelo', 'Quantidade']
+                        fig_mon_modelo = px.bar(
+                            top_modelos_mon, 
+                            x='Quantidade', 
+                            y='Modelo', 
+                            orientation='h', 
+                            title='Top 10 Modelos de Monitores', 
+                            color_discrete_sequence=[config.CORES['azul_petroleo']]
+                        )
+                        fig_mon_modelo.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                        st.plotly_chart(fig_mon_modelo, use_container_width=True)
+                
+                st.markdown("---")
+                
+                # Tabela de Monitores
+                st.subheader("🖥️ Inventário de Monitores")
+                
+                colunas_mon_exibir = ['Local', 'Usuario', 'Modelo_Monitor', 'Serial_Monitor', 'Data_Snapshot_Str']
+                df_mon_display = df_mon_filtrado[colunas_mon_exibir].copy()
+                df_mon_display.rename(columns={
+                    'Modelo_Monitor': 'Modelo',
+                    'Serial_Monitor': 'Nº de Série',
+                    'Usuario': 'Usuário',
+                    'Data_Snapshot_Str': 'Último Snapshot'
+                }, inplace=True)
+                
+                st.dataframe(
+                    df_mon_display,
+                    column_config={
+                        "Nº de Série": st.column_config.TextColumn("Nº de Série", width="medium"),
+                        "Modelo": st.column_config.TextColumn("Modelo", width="medium"),
+                        "Usuário": st.column_config.TextColumn("Usuário", width="small")
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
+                
+                # Exportação de Monitores
+                st.markdown("---")
+                st.subheader("📥 Exportar Monitores")
+                
+                col_exp1, col_exp2, _ = st.columns([1, 1, 4])
+                
+                with col_exp1:
+                    csv_mon = df_mon_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
+                    st.download_button(
+                        label="📄 Baixar CSV",
+                        data=csv_mon,
+                        file_name=f"monitores_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="csv_mon"
+                    )
+                
+                with col_exp2:
+                    output_mon = io.BytesIO()
+                    with pd.ExcelWriter(output_mon, engine='openpyxl') as writer:
+                        df_mon_display.to_excel(writer, index=False, sheet_name='Monitores')
+                    excel_data_mon = output_mon.getvalue()
+                    
+                    st.download_button(
+                        label="📊 Baixar Excel",
+                        data=excel_data_mon,
+                        file_name=f"monitores_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="excel_mon"
+                    )
+        
+        # ======================================================================
+        # SUB-SUB-ABA: IMPRESSORAS
+        # ======================================================================
+        with sub_tab_impressoras:
+            if df_impressoras.empty:
+                st.info("ℹ️ Nenhuma impressora com número de série encontrada nos snapshots. Aguarde a próxima atualização dos scripts de coleta.")
+            else:
+                # Filtros de Impressoras
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    locais_imp = sorted(df_impressoras['Local'].dropna().unique().tolist())
+                    filtro_local_imp = st.multiselect("Local", options=locais_imp, default=locais_imp, key="filtro_local_imp")
+                with col_f2:
+                    busca_imp = st.text_input("🔎 Buscar (Modelo, Serial, IP, Nome)", key="busca_imp")
+                
+                # Aplicação dos Filtros
+                df_imp_filtrado = df_impressoras[df_impressoras['Local'].isin(filtro_local_imp)]
+                
+                if busca_imp:
+                    mask_imp = (
+                        df_imp_filtrado['Modelo_Impressora'].str.contains(busca_imp, case=False, na=False) |
+                        df_imp_filtrado['Serial_Impressora'].str.contains(busca_imp, case=False, na=False) |
+                        df_imp_filtrado['IP_Impressora'].str.contains(busca_imp, case=False, na=False) |
+                        df_imp_filtrado['Nome_Impressora'].str.contains(busca_imp, case=False, na=False)
+                    )
+                    df_imp_filtrado = df_imp_filtrado[mask_imp]
+                
+                # KPIs de Impressoras
+                st.subheader("📊 Visão Geral das Impressoras")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total de Impressoras", len(df_imp_filtrado))
+                col2.metric("Locais com Impressoras", df_imp_filtrado['Local'].nunique())
+                col3.metric("Modelos Diferentes", df_imp_filtrado['Modelo_Impressora'].nunique())
+                
+                st.markdown("---")
+                
+                # Gráficos de Impressoras
+                st.subheader("📈 Distribuição")
+                col_g1, col_g2 = st.columns(2)
+                
+                with col_g1:
+                    if not df_imp_filtrado.empty:
+                        fig_imp_local = px.bar(
+                            df_imp_filtrado, 
+                            x='Local', 
+                            title='Impressoras por Local', 
+                            color_discrete_sequence=[config.CORES['ciano_destaque']]
+                        )
+                        fig_imp_local.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                        st.plotly_chart(fig_imp_local, use_container_width=True)
+                
+                with col_g2:
+                    if not df_imp_filtrado.empty:
+                        top_modelos_imp = df_imp_filtrado['Modelo_Impressora'].value_counts().head(10).reset_index()
+                        top_modelos_imp.columns = ['Modelo', 'Quantidade']
+                        fig_imp_modelo = px.bar(
+                            top_modelos_imp, 
+                            x='Quantidade', 
+                            y='Modelo', 
+                            orientation='h', 
+                            title='Top 10 Modelos de Impressoras', 
+                            color_discrete_sequence=[config.CORES['azul_petroleo']]
+                        )
+                        fig_imp_modelo.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                        st.plotly_chart(fig_imp_modelo, use_container_width=True)
+                
+                st.markdown("---")
+                
+                # Tabela de Impressoras
+                st.subheader("🖨️ Inventário de Impressoras")
+                
+                colunas_imp_exibir = ['Local', 'Nome_Impressora', 'Modelo_Impressora', 'Serial_Impressora', 'IP_Impressora', 'Data_Snapshot_Str']
+                df_imp_display = df_imp_filtrado[colunas_imp_exibir].copy()
+                df_imp_display.rename(columns={
+                    'Nome_Impressora': 'Nome',
+                    'Modelo_Impressora': 'Modelo',
+                    'Serial_Impressora': 'Nº de Série (SNMP)',
+                    'IP_Impressora': 'IP',
+                    'Data_Snapshot_Str': 'Último Snapshot'
+                }, inplace=True)
+                
+                st.dataframe(
+                    df_imp_display,
+                    column_config={
+                        "Nº de Série (SNMP)": st.column_config.TextColumn("Nº de Série", width="medium"),
+                        "Modelo": st.column_config.TextColumn("Modelo", width="medium"),
+                        "IP": st.column_config.TextColumn("IP", width="small"),
+                        "Nome": st.column_config.TextColumn("Nome", width="medium")
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
+                
+                # Exportação de Impressoras
+                st.markdown("---")
+                st.subheader("📥 Exportar Impressoras")
+                
+                col_exp1, col_exp2, _ = st.columns([1, 1, 4])
+                
+                with col_exp1:
+                    csv_imp = df_imp_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
+                    st.download_button(
+                        label="📄 Baixar CSV",
+                        data=csv_imp,
+                        file_name=f"impressoras_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="csv_imp"
+                    )
+                
+                with col_exp2:
+                    output_imp = io.BytesIO()
+                    with pd.ExcelWriter(output_imp, engine='openpyxl') as writer:
+                        df_imp_display.to_excel(writer, index=False, sheet_name='Impressoras')
+                    excel_data_imp = output_imp.getvalue()
+                    
+                    st.download_button(
+                        label="📊 Baixar Excel",
+                        data=excel_data_imp,
+                        file_name=f"impressoras_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="excel_imp"
+                    )
 
 # ==============================================================================
 # ABA 2: INVENTÁRIO GB (GOOGLE SHEETS)
@@ -437,7 +675,7 @@ with tab_gb:
     # Tabela Detalhada do Inventário GB
     st.subheader("📋 Inventário Detalhado GB")
     
-    # Seleciona colunas para exibição - AGORA INCLUINDO Nome_Dispositivo
+    # Seleciona colunas para exibição - INCLUINDO Nome_Dispositivo
     colunas_gb = ['Local', 'Codigo_BPCS', 'Nome_Dispositivo', 'Tipo_Equipamento', 'Status_Garantia', 'Dias_Restantes', 'Data_Garantia_Str']
     
     # Adiciona coluna de modelo se existir

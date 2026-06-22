@@ -104,9 +104,10 @@ def parsear_snapshot(conteudo, nome_arquivo, data_modificacao_drive):
             chave = chave.strip().replace(" ", "_").upper()
             valor = valor.strip()
             
-            # CORREÇÃO BUG #2: Remove parênteses e conteúdo para matching flexível
-            # Transforma "ID_(MAC/PROC)" em "ID" para compatibilidade com snapshots antigos e novos
-            chave_normalizada = re.sub(r'\s*\([^)]*\)', '', chave).strip()
+            # CORREÇÃO BUG #1: Regex atualizado para remover underscores E espaços antes do parêntese
+            # Transforma "ID_(MAC/PROC)" em "ID" para compatibilidade com snapshots novos
+            # Também funciona com "ID (MAC/PROC)" → "ID" (caso tenha espaço em vez de underscore)
+            chave_normalizada = re.sub(r'[_\s]*\([^)]*\)', '', chave).strip()
             
             if secao_atual == "ID":
                 if chave_normalizada == "LOCAL":

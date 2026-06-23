@@ -9,6 +9,32 @@ import config
 TZ_BR = pytz.timezone("America/Sao_Paulo")
 
 # ==============================================================================
+# FUNÇÃO UTILITÁRIA: SANITIZAÇÃO DE VALORES
+# ==============================================================================
+def sanitizar_valor(valor):
+    """
+    Remove caracteres de controle ilegais do openpyxl de uma string.
+    Preserva emojis e caracteres Unicode válidos.
+    
+    Caracteres removidos (ilegais no XML 1.0 usado pelo Excel):
+    - \x00-\x08: Nulos e caracteres de controle básicos
+    - \x0b-\x0c: Tabulação vertical e form feed
+    - \x0e-\x1f: Caracteres de controle ASCII
+    - \x7f-\x9f: DEL e caracteres C1 de controle
+    
+    Caracteres preservados:
+    - \t (0x09), \n (0x0A), \r (0x0D): Tab, newline, carriage return
+    - Emojis (🟢, 🔴, ⚠️, etc.)
+    - Caracteres Unicode válidos (acentos, símbolos, etc.)
+    """
+    if not valor or not isinstance(valor, str):
+        return valor
+    
+    # Regex do openpyxl para caracteres ilegais em XML 1.0
+    illegal_char_regex = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
+    return illegal_char_regex.sub('', valor)
+
+# ==============================================================================
 # PARSER DE SNAPSHOTS DO DRIVE (LÓGICA ORIGINAL PRESERVADA)
 # ==============================================================================
 
@@ -59,6 +85,7 @@ def parsear_snapshot(conteudo, nome_arquivo, data_modificacao_drive):
     Faz o parsing de um único arquivo de snapshot.
     Retorna um dicionário com os dados estruturados.
     Tolerante a ausências de campos e variações de espaçamento.
+    Aplica sanitização em todos os valores extraídos.
     """
     linhas = conteudo.splitlines()
     
@@ -109,32 +136,35 @@ def parsear_snapshot(conteudo, nome_arquivo, data_modificacao_drive):
             # Também funciona com "ID (MAC/PROC)" → "ID" (caso tenha espaço em vez de underscore)
             chave_normalizada = re.sub(r'[_\s]*\([^)]*\)', '', chave).strip()
             
+            # SANITIZAÇÃO: Remove caracteres de controle ilegais do valor
+            valor_sanitizado = sanitizar_valor(valor)
+            
             if secao_atual == "ID":
                 if chave_normalizada == "LOCAL":
-                    dados["Local"] = valor
+                    dados["Local"] = valor_sanitizado
                 elif chave_normalizada in ("USUARIO", "USUÁRIO"):
-                    dados["Usuario"] = valor
+                    dados["Usuario"] = valor_sanitizado
                     
             elif secao_atual == "HARDWARE":
                 if chave_normalizada == "NOME_COMPUTADOR":
-                    dados["Nome_Computador"] = valor
+                    dados["Nome_Computador"] = valor_sanitizado
                 elif chave_normalizada == "MODELO_SISTEMA":
-                    dados["Modelo_Sistema"] = valor
+                    dados["Modelo_Sistema"] = valor_sanitizado
                 elif chave_normalizada == "PROCESSADOR":
-                    dados["Processador"] = valor
+                    dados["Processador"] = valor_sanitizado
                 elif chave_normalizada == "MEMORIA_RAM":
-                    dados["Memoria_RAM"] = valor
-                    dados["Memoria_RAM_GB"] = arredondar_ram(valor)
+                    dados["Memoria_RAM"] = valor_sanitizado
+                    dados["Memoria_RAM_GB"] = arredondar_ram(valor_sanitizado)
                 elif chave_normalizada == "WINDOWS":
-                    dados["Windows"] = valor
+                    dados["Windows"] = valor_sanitizado
                 elif chave_normalizada == "ID":
-                    dados["ID"] = valor
+                    dados["ID"] = valor_sanitizado
                     
             elif secao_atual == "SUPORTE":
                 if chave_normalizada == "ANYDESK":
-                    dados["AnyDesk"] = valor
+                    dados["AnyDesk"] = valor_sanitizado
                 elif chave_normalizada == "TEAMVIEWER":
-                    dados["TeamViewer"] = valor
+                    dados["TeamViewer"] = valor_sanitizado
 
     return dados
 
@@ -197,6 +227,8 @@ def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
     """
     Extrai monitores da seção 'PERIFÉRICOS — MONITORES' do snapshot.
     Regex refinada para aceitar variações de travessão (— ou -).
+    FILTRA: Ignora monitores com número de série igual a "0".
+    Aplica sanitização em todos os valores extraídos.
     """
     monitores = []
     
@@ -229,7 +261,12 @@ def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
         serial_match = re.search(r'N[º°\.]?\s*de\s*S[ée]rie\s*:\s*(.+)', bloco_monitor)
         serial = serial_match.group(1).strip() if serial_match else ""
         
-        if modelo:
+        # SANITIZAÇÃO: Remove caracteres de controle ilegais
+        modelo = sanitizar_valor(modelo)
+        serial = sanitizar_valor(serial)
+        
+        # FILTRO: Ignora monitores sem modelo OU com serial igual a "0"
+        if modelo and serial != "0":
             monitores.append({
                 "Local": local,
                 "Usuario": usuario,
@@ -244,6 +281,7 @@ def parsear_impressoras_do_snapshot(conteudo, local, data_snapshot):
     """
     Extrai impressoras da seção 'PERIFÉRICOS — IMPRESSORAS' do snapshot.
     FILTRA: Apenas impressoras com número de série (ignora as sem serial).
+    Aplica sanitização em todos os valores extraídos.
     """
     impressoras = []
     
@@ -278,6 +316,12 @@ def parsear_impressoras_do_snapshot(conteudo, local, data_snapshot):
         
         ip_match = re.search(r'IP\s*:\s*(.+)', bloco_impressora)
         ip = ip_match.group(1).strip() if ip_match else ""
+        
+        # SANITIZAÇÃO: Remove caracteres de controle ilegais
+        nome = sanitizar_valor(nome)
+        serial = sanitizar_valor(serial)
+        modelo = sanitizar_valor(modelo)
+        ip = sanitizar_valor(ip)
         
         # FILTRO CRÍTICO: Ignora impressoras sem número de série
         if not serial:

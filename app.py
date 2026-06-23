@@ -133,7 +133,18 @@ with st.sidebar:
         drive_client.carregar_snapshots_drive.clear()
         sheets_client.carregar_planilha_gb.clear()
         st.rerun()
-        
+    
+    # SELETOR DE RELATÓRIO (NOVO)
+    st.markdown("### 📊 Selecionar Relatório")
+    relatorio_selecionado = st.radio(
+        "Relatório Ativo:",
+        options=["🏢 Inventário Administrativo", "📊 Inventário GB"],
+        index=0,
+        key="relatorio_selecionado",
+        label_visibility="collapsed"
+    )
+    
+    st.markdown("---")
     st.markdown("### 🔍 Filtros")
 
 # ==============================================================================
@@ -164,6 +175,8 @@ if not df_gb_bruto.empty:
 # ==============================================================================
 # NAVEGAÇÃO PRINCIPAL POR ABAS
 # ==============================================================================
+# Sincroniza a aba ativa com o seletor de relatório
+indice_aba = 0 if relatorio_selecionado == "🏢 Inventário Administrativo" else 1
 tab_admin, tab_gb = st.tabs([
     "🏢 Inventário Administrativo",
     "📊 Inventário GB"
@@ -188,28 +201,36 @@ with tab_admin:
     # SUB-ABA 1.1: COMPUTADORES (Conteúdo Original Preservado)
     # -------------------------------------------------------------------------
     with sub_tab_computadores:
-        # População dos Filtros na Sidebar (após ter o dataframe)
-        with st.sidebar:
-            locais = sorted(df_inventario['Local'].dropna().unique().tolist())
-            filtro_local = st.multiselect("Local (Administrativo)", options=locais, default=locais)
-            
-            usuarios = sorted(df_inventario['Usuario'].dropna().unique().tolist())
-            filtro_usuario = st.multiselect("Usuário", options=usuarios, default=usuarios)
-            
-            windows = sorted(df_inventario['Windows'].dropna().unique().tolist())
-            filtro_windows = st.multiselect("Sistema Operacional", options=windows, default=windows)
-            
-            filtro_processador = st.text_input("Buscar no Processador (ex: Ryzen, Intel)")
-            busca_geral = st.text_input("🔎 Busca Livre (Nome, ID, AnyDesk, TV)")
-            
-            st.markdown("---")
-            st.markdown("### 📊 Auditoria de Dados")
-            with st.expander(f"Ver {len(log_duplicatas)} duplicatas descartadas"):
-                if log_duplicatas:
-                    for log in log_duplicatas:
-                        st.caption(f"🗑️ {log}")
-                else:
-                    st.caption("✅ Nenhuma duplicata encontrada nesta varredura.")
+        # FILTROS CONDICIONAIS: Só aparecem quando o relatório Administrativo está selecionado
+        if relatorio_selecionado == "🏢 Inventário Administrativo":
+            with st.sidebar:
+                locais = sorted(df_inventario['Local'].dropna().unique().tolist())
+                filtro_local = st.multiselect("Local (Administrativo)", options=locais, default=locais, key="filtro_local_admin")
+                
+                usuarios = sorted(df_inventario['Usuario'].dropna().unique().tolist())
+                filtro_usuario = st.multiselect("Usuário", options=usuarios, default=usuarios, key="filtro_usuario_admin")
+                
+                windows = sorted(df_inventario['Windows'].dropna().unique().tolist())
+                filtro_windows = st.multiselect("Sistema Operacional", options=windows, default=windows, key="filtro_windows_admin")
+                
+                filtro_processador = st.text_input("Buscar no Processador (ex: Ryzen, Intel)", key="filtro_processador_admin")
+                busca_geral = st.text_input("🔎 Busca Livre (Nome, ID, AnyDesk, TV)", key="busca_geral_admin")
+                
+                st.markdown("---")
+                st.markdown("### 📊 Auditoria de Dados")
+                with st.expander(f"Ver {len(log_duplicatas)} duplicatas descartadas"):
+                    if log_duplicatas:
+                        for log in log_duplicatas:
+                            st.caption(f"🗑️ {log}")
+                    else:
+                        st.caption("✅ Nenhuma duplicata encontrada nesta varredura.")
+        else:
+            # Valores padrão quando o filtro não está visível
+            filtro_local = sorted(df_inventario['Local'].dropna().unique().tolist())
+            filtro_usuario = sorted(df_inventario['Usuario'].dropna().unique().tolist())
+            filtro_windows = sorted(df_inventario['Windows'].dropna().unique().tolist())
+            filtro_processador = ""
+            busca_geral = ""
         
         # Aplicação dos Filtros
         df_filtrado = df_inventario[
@@ -645,18 +666,24 @@ with tab_gb:
         st.warning("⚠️ Nenhum dado encontrado na planilha GB. Verifique o compartilhamento da planilha.")
         st.stop()
     
-    # Filtros do Inventário GB
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🔍 Filtros GB")
-    
-    locais_gb = sorted(df_gb['Local'].dropna().unique().tolist())
-    filtro_local_gb = st.sidebar.multiselect("Local (GB)", options=locais_gb, default=locais_gb)
-    
-    tipos_equip = sorted(df_gb['Tipo_Equipamento'].dropna().unique().tolist())
-    filtro_tipo_gb = st.sidebar.multiselect("Tipo de Equipamento", options=tipos_equip, default=tipos_equip)
-    
-    status_garantia = sorted(df_gb['Status_Garantia'].dropna().unique().tolist())
-    filtro_status_gb = st.sidebar.multiselect("Status de Garantia", options=status_garantia, default=status_garantia)
+    # FILTROS CONDICIONAIS: Só aparecem quando o relatório GB está selecionado
+    if relatorio_selecionado == "📊 Inventário GB":
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 🔍 Filtros GB")
+        
+        locais_gb = sorted(df_gb['Local'].dropna().unique().tolist())
+        filtro_local_gb = st.sidebar.multiselect("Local (GB)", options=locais_gb, default=locais_gb, key="filtro_local_gb")
+        
+        tipos_equip = sorted(df_gb['Tipo_Equipamento'].dropna().unique().tolist())
+        filtro_tipo_gb = st.sidebar.multiselect("Tipo de Equipamento", options=tipos_equip, default=tipos_equip, key="filtro_tipo_gb")
+        
+        status_garantia = sorted(df_gb['Status_Garantia'].dropna().unique().tolist())
+        filtro_status_gb = st.sidebar.multiselect("Status de Garantia", options=status_garantia, default=status_garantia, key="filtro_status_gb")
+    else:
+        # Valores padrão quando o filtro não está visível
+        filtro_local_gb = sorted(df_gb['Local'].dropna().unique().tolist())
+        filtro_tipo_gb = sorted(df_gb['Tipo_Equipamento'].dropna().unique().tolist())
+        filtro_status_gb = sorted(df_gb['Status_Garantia'].dropna().unique().tolist())
     
     # Aplicação dos Filtros GB
     df_gb_filtrado = df_gb[

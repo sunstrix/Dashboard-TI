@@ -4,6 +4,7 @@ import plotly.express as px
 from datetime import datetime, timedelta
 import io
 import pytz
+import re
 
 import config
 import drive_client
@@ -19,6 +20,42 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ==============================================================================
+# FUNÇÃO UTILITÁRIA: SANITIZAÇÃO PARA EXCEL
+# ==============================================================================
+def sanitizar_para_excel(df):
+    """
+    Remove caracteres de controle ilegais do openpyxl de todas as colunas
+    de string do DataFrame. Preserva emojis e caracteres Unicode válidos.
+    
+    Caracteres removidos (ilegais no XML 1.0 usado pelo Excel):
+    - \x00-\x08: Nulos e caracteres de controle básicos
+    - \x0b-\x0c: Tabulação vertical e form feed
+    - \x0e-\x1f: Caracteres de controle ASCII
+    - \x7f-\x9f: DEL e caracteres C1 de controle
+    
+    Caracteres preservados:
+    - \t (0x09), \n (0x0A), \r (0x0D): Tab, newline, carriage return
+    - Emojis (🟢, 🔴, ⚠️, etc.)
+    - Caracteres Unicode válidos (acentos, símbolos, etc.)
+    """
+    if df is None or df.empty:
+        return df
+    
+    df_limpo = df.copy()
+    
+    # Regex do openpyxl para caracteres ilegais em XML 1.0
+    # Remove apenas caracteres de controle, preserva \t, \n, \r e emojis
+    illegal_char_regex = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
+    
+    for col in df_limpo.columns:
+        if df_limpo[col].dtype == 'object':
+            df_limpo[col] = df_limpo[col].apply(
+                lambda x: illegal_char_regex.sub('', str(x)) if pd.notna(x) and isinstance(x, str) else x
+            )
+    
+    return df_limpo
 
 # Injeção de CSS Customizado (Tema Escuro TI Premium)
 st.markdown(f"""
@@ -301,9 +338,11 @@ with tab_admin:
             )
         
         with col_exp2:
+            # SANITIZAÇÃO: Remove caracteres ilegais antes de exportar para Excel
+            df_display_limpo = sanitizar_para_excel(df_display)
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_display.to_excel(writer, index=False, sheet_name='Inventario_Admin')
+                df_display_limpo.to_excel(writer, index=False, sheet_name='Inventario_Admin')
             excel_data = output.getvalue()
             
             st.download_button(
@@ -458,9 +497,11 @@ with tab_admin:
                     )
                 
                 with col_exp2:
+                    # SANITIZAÇÃO: Remove caracteres ilegais antes de exportar para Excel
+                    df_mon_display_limpo = sanitizar_para_excel(df_mon_display)
                     output_mon = io.BytesIO()
                     with pd.ExcelWriter(output_mon, engine='openpyxl') as writer:
-                        df_mon_display.to_excel(writer, index=False, sheet_name='Monitores')
+                        df_mon_display_limpo.to_excel(writer, index=False, sheet_name='Monitores')
                     excel_data_mon = output_mon.getvalue()
                     
                     st.download_button(
@@ -581,9 +622,11 @@ with tab_admin:
                     )
                 
                 with col_exp2:
+                    # SANITIZAÇÃO: Remove caracteres ilegais antes de exportar para Excel
+                    df_imp_display_limpo = sanitizar_para_excel(df_imp_display)
                     output_imp = io.BytesIO()
                     with pd.ExcelWriter(output_imp, engine='openpyxl') as writer:
-                        df_imp_display.to_excel(writer, index=False, sheet_name='Impressoras')
+                        df_imp_display_limpo.to_excel(writer, index=False, sheet_name='Impressoras')
                     excel_data_imp = output_imp.getvalue()
                     
                     st.download_button(
@@ -734,9 +777,11 @@ with tab_gb:
         )
     
     with col_exp2:
+        # SANITIZAÇÃO: Remove caracteres ilegais antes de exportar para Excel
+        df_gb_display_limpo = sanitizar_para_excel(df_gb_display)
         output_gb = io.BytesIO()
         with pd.ExcelWriter(output_gb, engine='openpyxl') as writer:
-            df_gb_display.to_excel(writer, index=False, sheet_name='Inventario_GB')
+            df_gb_display_limpo.to_excel(writer, index=False, sheet_name='Inventario_GB')
         excel_data_gb = output_gb.getvalue()
         
         st.download_button(

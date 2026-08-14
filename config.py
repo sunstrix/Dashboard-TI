@@ -29,6 +29,19 @@ SHEETS_ABA_PDV = "PDV"
 SHEETS_GID_PDV = "1312090202"  # GID correto da aba PDV
 
 # ==============================================================================
+# CONFIGURAÇÕES DO GOOGLE SHEETS (CELULARES ADMINISTRATIVOS)
+# ==============================================================================
+# ID da planilha pública do Google Sheets (Relatório de Celulares)
+SHEETS_SPREADSHEET_ID_CELULARES = "1JBJDDeev78OxcGbcviKnPKERMMazZVct-khEXPMZUuU"
+
+# Aba da planilha que contém os dados de celulares
+SHEETS_ABA_CELULARES = "Relatório_Dispositivos"
+
+# GID (ID numérico) da aba de celulares
+# Para encontrar: abra a planilha, clique na aba, e copie o número após #gid= na URL
+SHEETS_GID_CELULARES = "0"  # GID da aba Relatório_Dispositivos (ajustar se necessário)
+
+# ==============================================================================
 # CONFIGURAÇÕES DE CACHE E PERFORMANCE
 # ==============================================================================
 # Tempo de vida do cache do Streamlit (em segundos).
@@ -87,7 +100,7 @@ PLOTLY_TEMPLATE_CONFIG = {
 SECOES_VALIDAS = ["[ID]", "[HARDWARE]", "[SUPORTE]"]
 
 # ==============================================================================
-# MAPEAMENTO BPCS → LOCAL (INVENTÁRIO GB)
+# MAPEAMENTO BPCS → LOCAL (INVENTÁRIO GB E CELULARES)
 # ==============================================================================
 # Dicionário que mapeia o código BPCS da planilha para o nome oficial do Local
 MAPEAMENTO_BPCS_LOCAL = {

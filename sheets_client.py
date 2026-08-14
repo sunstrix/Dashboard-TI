@@ -16,13 +16,27 @@ def _baixar_csv_de_planilha(spreadsheet_id, gid, nome_log):
     
     Parâmetros:
         spreadsheet_id: ID da planilha
-        gid: ID da aba (0 para a primeira aba)
+        gid: ID da aba (vazio/None exporta a primeira aba)
         nome_log: Nome usado em mensagens de erro para debugging
+    
+    HOTFIX: se o GID configurado não existir na planilha (HTTP 400 Bad Request),
+    faz fallback automático para a primeira aba (export sem gid).
     """
-    url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv&gid={gid}"
+    url_base = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv"
+    url = f"{url_base}&gid={gid}" if gid else url_base
     
     try:
         response = requests.get(url, timeout=30)
+        
+        # HOTFIX: GID inexistente retorna 400 no endpoint de export do Google.
+        # Fallback seguro: exporta a primeira aba da planilha (sem gid).
+        if response.status_code == 400 and gid:
+            st.warning(
+                f"⚠️ GID '{gid}' da planilha {nome_log} não encontrado. "
+                f"Exportando a primeira aba como fallback."
+            )
+            response = requests.get(url_base, timeout=30)
+        
         response.raise_for_status()
         
         # Tenta decodificar como UTF-8

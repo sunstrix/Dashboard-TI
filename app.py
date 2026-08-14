@@ -37,7 +37,7 @@ def sanitizar_para_excel(df):
     
     Caracteres preservados:
     - \t (0x09), \n (0x0A), \r (0x0D): Tab, newline, carriage return
-    - Emojis (🟢, 🔴, ⚠️, etc.)
+    - Emojis (🟢, , ⚠️, etc.)
     - Caracteres Unicode válidos (acentos, símbolos, etc.)
     """
     if df is None or df.empty:
@@ -132,6 +132,7 @@ with st.sidebar:
     if st.button("🔄 Forçar Atualização dos Dados"):
         drive_client.carregar_snapshots_drive.clear()
         sheets_client.carregar_planilha_gb.clear()
+        sheets_client.carregar_planilha_celulares.clear()
         st.rerun()
     
     # SELETOR DE RELATÓRIO (NOVO)
@@ -171,6 +172,13 @@ df_gb = pd.DataFrame()
 
 if not df_gb_bruto.empty:
     df_gb = parser.processar_planilha_gb(df_gb_bruto)
+
+# Celulares Administrativos (Sheets - Relatório_Dispositivos)
+df_celulares_bruto = sheets_client.carregar_planilha_celulares()
+df_celulares = pd.DataFrame()
+
+if not df_celulares_bruto.empty:
+    df_celulares = parser.processar_planilha_celulares(df_celulares_bruto)
 
 # ==============================================================================
 # NAVEGAÇÃO PRINCIPAL POR ABAS
@@ -233,11 +241,12 @@ with tab_admin:
             busca_geral = ""
         
         # Aplicação dos Filtros
+        # FIX FASE 0: .copy() explícito evita SettingWithCopyWarning nas atribuições de Status/Alerta_RAM
         df_filtrado = df_inventario[
             (df_inventario['Local'].isin(filtro_local)) &
             (df_inventario['Usuario'].isin(filtro_usuario)) &
             (df_inventario['Windows'].isin(filtro_windows))
-        ]
+        ].copy()
         
         if filtro_processador:
             df_filtrado = df_filtrado[df_filtrado['Processador'].str.contains(filtro_processador, case=False, na=False)]
@@ -374,28 +383,177 @@ with tab_admin:
             )
     
     # -------------------------------------------------------------------------
-    # SUB-ABA 1.2: CELULARES ADMINISTRATIVOS (Placeholder)
+    # SUB-ABA 1.2: CELULARES ADMINISTRATIVOS (FUNCIONAL - Planilha Relatório_Dispositivos)
     # -------------------------------------------------------------------------
     with sub_tab_celulares:
         st.title("📱 Celulares Administrativos")
+        st.markdown(f"*Atualizado em: {datetime.now(pytz.timezone('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')} (Horário de Brasília)*")
         st.markdown("---")
-        st.markdown("""
-        <div class="dev-placeholder">
-            <h2>🚧 Em Desenvolvimento</h2>
-            <p>Esta seção está em desenvolvimento.</p>
-            <p>Em breve, os celulares administrativos serão integrados aqui.</p>
-        </div>
-        """, unsafe_allow_html=True)
         
-        st.info("💡 **Funcionalidades planejadas:**")
-        st.markdown("""
-        - 📋 Inventário completo de celulares corporativos
-        - 📊 KPIs: Total de dispositivos, distribuição por marca/modelo
-        - 🔋 Status de bateria e saúde do dispositivo
-        - 📱 Dados de suporte remoto (AnyDesk/TeamViewer Mobile)
-        - 📅 Controle de troca e ciclo de vida
-        - 📥 Exportação para CSV/Excel
-        """)
+        if df_celulares.empty:
+            st.info("ℹ️ Nenhum celular encontrado na planilha Relatório_Dispositivos. Verifique o compartilhamento da planilha.")
+        else:
+            # Filtros de Celulares (mesmo padrão visual das sub-abas de Periféricos)
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                locais_cel = sorted(df_celulares['Local'].dropna().unique().tolist())
+                filtro_local_cel = st.multiselect("Local", options=locais_cel, default=locais_cel, key="filtro_local_cel")
+                
+                politicas_cel = sorted(df_celulares['Politica'].dropna().unique().tolist())
+                filtro_politica_cel = st.multiselect("Política", options=politicas_cel, default=politicas_cel, key="filtro_politica_cel")
+            with col_f2:
+                modelos_cel = sorted(df_celulares['Modelo'].dropna().unique().tolist())
+                filtro_modelo_cel = st.multiselect("Modelo", options=modelos_cel, default=modelos_cel, key="filtro_modelo_cel")
+                
+                status_cel = sorted(df_celulares['Status_Comunicacao'].dropna().unique().tolist())
+                filtro_status_cel = st.multiselect("Status de Comunicação", options=status_cel, default=status_cel, key="filtro_status_cel")
+            
+            busca_cel = st.text_input("🔎 Buscar (Nome, Responsável, IMEI, Serial)", key="busca_cel")
+            
+            # Aplicação dos Filtros
+            df_cel_filtrado = df_celulares[
+                (df_celulares['Local'].isin(filtro_local_cel)) &
+                (df_celulares['Politica'].isin(filtro_politica_cel)) &
+                (df_celulares['Modelo'].isin(filtro_modelo_cel)) &
+                (df_celulares['Status_Comunicacao'].isin(filtro_status_cel))
+            ].copy()
+            
+            if busca_cel:
+                mask_cel = (
+                    df_cel_filtrado['Nome_Dispositivo'].str.contains(busca_cel, case=False, na=False) |
+                    df_cel_filtrado['Responsavel'].str.contains(busca_cel, case=False, na=False) |
+                    df_cel_filtrado['IMEI'].str.contains(busca_cel, case=False, na=False) |
+                    df_cel_filtrado['Serial'].str.contains(busca_cel, case=False, na=False)
+                )
+                df_cel_filtrado = df_cel_filtrado[mask_cel]
+            
+            # KPIs de Celulares
+            st.subheader("📊 Visão Geral dos Celulares")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            total_cel = len(df_cel_filtrado)
+            cel_ok = len(df_cel_filtrado[df_cel_filtrado['Status_Comunicacao'] == '🟢 OK'])
+            cel_desat = len(df_cel_filtrado[df_cel_filtrado['Status_Comunicacao'] == '🔴 Desatualizado'])
+            
+            col1.metric("Total de Celulares", total_cel)
+            col2.metric("🟢 Atualizados", cel_ok)
+            col3.metric("🔴 Desatualizados", cel_desat)
+            col4.metric("Locais com Celulares", df_cel_filtrado['Local'].nunique())
+            col5.metric("Modelos Diferentes", df_cel_filtrado['Modelo'].nunique())
+            
+            st.markdown("---")
+            
+            # Gráficos de Celulares
+            st.subheader("📈 Distribuição")
+            col_g1, col_g2, col_g3 = st.columns(3)
+            
+            with col_g1:
+                if not df_cel_filtrado.empty:
+                    fig_cel_local = px.bar(
+                        df_cel_filtrado, 
+                        x='Local', 
+                        title='Celulares por Local', 
+                        color_discrete_sequence=[config.CORES['ciano_destaque']]
+                    )
+                    fig_cel_local.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                    st.plotly_chart(fig_cel_local, use_container_width=True)
+            
+            with col_g2:
+                if not df_cel_filtrado.empty:
+                    fig_cel_pol = px.pie(
+                        df_cel_filtrado, 
+                        names='Politica', 
+                        title='Distribuição por Política', 
+                        hole=0.4, 
+                        color_discrete_sequence=[config.CORES['azul_petroleo'], config.CORES['ciano_destaque'], config.CORES['verde_sucesso'], config.CORES['amarelo_alerta']]
+                    )
+                    fig_cel_pol.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                    fig_cel_pol.update_traces(textposition='inside', textinfo='percent+label')
+                    st.plotly_chart(fig_cel_pol, use_container_width=True)
+            
+            with col_g3:
+                if not df_cel_filtrado.empty:
+                    top_modelos_cel = df_cel_filtrado['Modelo'].value_counts().head(10).reset_index()
+                    top_modelos_cel.columns = ['Modelo', 'Quantidade']
+                    fig_cel_modelo = px.bar(
+                        top_modelos_cel, 
+                        x='Quantidade', 
+                        y='Modelo', 
+                        orientation='h', 
+                        title='Top 10 Modelos de Celulares', 
+                        color_discrete_sequence=[config.CORES['verde_sucesso']]
+                    )
+                    fig_cel_modelo.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                    st.plotly_chart(fig_cel_modelo, use_container_width=True)
+            
+            st.markdown("---")
+            
+            # Tabela de Celulares
+            st.subheader("📱 Inventário de Celulares")
+            
+            colunas_cel_exibir = [
+                'Status_Comunicacao', 'Local', 'Responsavel', 'Nome_Dispositivo', 
+                'Modelo', 'IMEI', 'Serial', 'Politica', 'Versao_SO', 
+                'Dias_Sem_Comunicacao', 'Data_Ultimo_Envio_Str', 'IP_Local'
+            ]
+            df_cel_display = df_cel_filtrado[colunas_cel_exibir].copy()
+            df_cel_display.rename(columns={
+                'Status_Comunicacao': 'Status',
+                'Responsavel': 'Responsável',
+                'Nome_Dispositivo': 'Nome do Dispositivo',
+                'Serial': 'Nº de Série',
+                'Politica': 'Política',
+                'Versao_SO': 'Versão SO',
+                'Dias_Sem_Comunicacao': 'Dias sem Comunicação',
+                'Data_Ultimo_Envio_Str': 'Último Envio',
+                'IP_Local': 'IP Local'
+            }, inplace=True)
+            
+            st.dataframe(
+                df_cel_display,
+                column_config={
+                    "Status": st.column_config.TextColumn("Status", width="small"),
+                    "Nº de Série": st.column_config.TextColumn("Nº de Série", width="medium"),
+                    "IMEI": st.column_config.TextColumn("IMEI", width="medium"),
+                    "Responsável": st.column_config.TextColumn("Responsável", width="small"),
+                    "IP Local": st.column_config.TextColumn("IP Local", width="medium"),
+                    "Dias sem Comunicação": st.column_config.NumberColumn("Dias", format="%d")
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+            
+            # Exportação de Celulares
+            st.markdown("---")
+            st.subheader("📥 Exportar Celulares")
+            
+            col_exp1, col_exp2, _ = st.columns([1, 1, 4])
+            
+            with col_exp1:
+                csv_cel = df_cel_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
+                st.download_button(
+                    label="📄 Baixar CSV",
+                    data=csv_cel,
+                    file_name=f"celulares_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    key="csv_cel"
+                )
+            
+            with col_exp2:
+                # SANITIZAÇÃO: Remove caracteres ilegais antes de exportar para Excel
+                df_cel_display_limpo = sanitizar_para_excel(df_cel_display)
+                output_cel = io.BytesIO()
+                with pd.ExcelWriter(output_cel, engine='openpyxl') as writer:
+                    df_cel_display_limpo.to_excel(writer, index=False, sheet_name='Celulares')
+                excel_data_cel = output_cel.getvalue()
+                
+                st.download_button(
+                    label="📊 Baixar Excel",
+                    data=excel_data_cel,
+                    file_name=f"celulares_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="excel_cel"
+                )
     
     # -------------------------------------------------------------------------
     # SUB-ABA 1.3: PERIFÉRICOS (FUNCIONAL - Monitores e Impressoras)
@@ -518,7 +676,7 @@ with tab_admin:
                     )
                 
                 with col_exp2:
-                    # SANITIZAÇÃO: Remove caracteres ilegais antes de exportar para Excel
+                    # SANITIZAÇÃO: Removes caracteres ilegais antes de exportar para Excel
                     df_mon_display_limpo = sanitizar_para_excel(df_mon_display)
                     output_mon = io.BytesIO()
                     with pd.ExcelWriter(output_mon, engine='openpyxl') as writer:
@@ -643,7 +801,7 @@ with tab_admin:
                     )
                 
                 with col_exp2:
-                    # SANITIZAÇÃO: Remove caracteres ilegais antes de exportar para Excel
+                    # SANITIZAÇÃO: Removes caracteres ilegais antes de exportar para Excel
                     df_imp_display_limpo = sanitizar_para_excel(df_imp_display)
                     output_imp = io.BytesIO()
                     with pd.ExcelWriter(output_imp, engine='openpyxl') as writer:

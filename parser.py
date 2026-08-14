@@ -9,6 +9,13 @@ import config
 TZ_BR = pytz.timezone("America/Sao_Paulo")
 
 # ==============================================================================
+# CONSTANTES DE VALIDAÇÃO DE PERIFÉRICOS (CORREÇÃO FASE 0)
+# ==============================================================================
+# Valores que invalidam um número de série (periférico é descartado).
+# Antes apenas "" e "0" eram barrados; "N/A" e "-" poluíam o inventário.
+SERIAIS_INVALIDOS = {"", "0", "N/A", "n/a", "NA", "na", "-", "--", "null", "none", "None"}
+
+# ==============================================================================
 # FUNÇÃO UTILITÁRIA: SANITIZAÇÃO DE VALORES
 # ==============================================================================
 def sanitizar_valor(valor):
@@ -24,7 +31,7 @@ def sanitizar_valor(valor):
     
     Caracteres preservados:
     - \t (0x09), \n (0x0A), \r (0x0D): Tab, newline, carriage return
-    - Emojis (🟢, 🔴, ⚠️, etc.)
+    - Emojis (🟢, 🔴, ️, etc.)
     - Caracteres Unicode válidos (acentos, símbolos, etc.)
     """
     if not valor or not isinstance(valor, str):
@@ -60,6 +67,13 @@ def parsear_data_geracao(texto, data_fallback_drive):
     Extrai a data 'Gerado em:' do cabeçalho.
     Se não encontrar ou falhar, usa a data de modificação do Drive.
     Retorna um objeto datetime timezone-aware (UTC-3).
+    
+    CORREÇÃO DE BUG (FASE 0): quando nenhuma das duas fontes funciona,
+    retorna a data sentinela 01/01/1970 em vez de datetime.now().
+    Antes, snapshots corrompidos apareciam como "atualizados hoje",
+    ocultando máquinas quebradas no painel. Com a data sentinela:
+    1) A máquina aparece como 🔴 Desatualizada;
+    2) A deduplicação por ID prioriza snapshots com data válida.
     """
     match = re.search(r"Gerado em:\s*(\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2})", texto, re.IGNORECASE)
     if match:
@@ -78,7 +92,8 @@ def parsear_data_geracao(texto, data_fallback_drive):
         except Exception:
             pass
             
-    return datetime.now(TZ_BR)
+    # Data sentinela: snapshot sem data válida nunca parece "recente"
+    return TZ_BR.localize(datetime(1970, 1, 1))
 
 def parsear_snapshot(conteudo, nome_arquivo, data_modificacao_drive):
     """
@@ -125,7 +140,7 @@ def parsear_snapshot(conteudo, nome_arquivo, data_modificacao_drive):
         elif "PERIFÉRICOS" in linha_upper or "PERIFERICOS" in linha_upper:
             secao_atual = "PERIFERICOS"
             continue
-            
+        
         if ":" in linha:
             chave, valor = linha.split(":", 1)
             chave = chave.strip().replace(" ", "_").upper()
@@ -218,7 +233,6 @@ def processar_todos_snapshots(lista_snapshots_brutos):
     
     return df_final, log_duplicatas
 
-
 # ==============================================================================
 # PARSER DE PERIFÉRICOS (FUNÇÕES REFINADAS - MAIS TOLERANTES)
 # ==============================================================================
@@ -227,7 +241,7 @@ def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
     """
     Extrai monitores da seção 'PERIFÉRICOS — MONITORES' do snapshot.
     Regex refinada para aceitar variações de travessão (— ou -).
-    FILTRA: Ignora monitores com número de série igual a "0".
+    FILTRA: Ignora monitores com número de série inválido ("0", "N/A", "-", ...).
     Aplica sanitização em todos os valores extraídos.
     """
     monitores = []
@@ -265,8 +279,8 @@ def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
         modelo = sanitizar_valor(modelo)
         serial = sanitizar_valor(serial)
         
-        # FILTRO: Ignora monitores sem modelo OU com serial igual a "0"
-        if modelo and serial != "0":
+        # CORREÇÃO FASE 0: barra seriais inválidos ("0", "N/A", "-", ...) via SERIAIS_INVALIDOS
+        if modelo and serial not in SERIAIS_INVALIDOS:
             monitores.append({
                 "Local": local,
                 "Usuario": usuario,
@@ -280,7 +294,7 @@ def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
 def parsear_impressoras_do_snapshot(conteudo, local, data_snapshot):
     """
     Extrai impressoras da seção 'PERIFÉRICOS — IMPRESSORAS' do snapshot.
-    FILTRA: Apenas impressoras com número de série (ignora as sem serial).
+    FILTRA: Apenas impressoras com número de série válido (ignora "", "0", "N/A", ...).
     Aplica sanitização em todos os valores extraídos.
     """
     impressoras = []
@@ -323,8 +337,8 @@ def parsear_impressoras_do_snapshot(conteudo, local, data_snapshot):
         modelo = sanitizar_valor(modelo)
         ip = sanitizar_valor(ip)
         
-        # FILTRO CRÍTICO: Ignora impressoras sem número de série
-        if not serial:
+        # CORREÇÃO FASE 0: barra seriais inválidos ("", "0", "N/A", "-", ...) via SERIAIS_INVALIDOS
+        if serial in SERIAIS_INVALIDOS:
             continue
         
         if nome:
@@ -394,7 +408,6 @@ def processar_perifericos(lista_snapshots_brutos):
             df_impressoras = df_impressoras.reset_index(drop=True)
     
     return df_monitores, df_impressoras
-
 
 # ==============================================================================
 # PARSER DO INVENTÁRIO GB (LÓGICA ORIGINAL PRESERVADA)
@@ -484,3 +497,151 @@ def processar_planilha_gb(df_bruto):
     df['Data_Garantia_Str'] = df['Data_Garantia'].dt.strftime('%d/%m/%Y')
     
     return df
+
+# ==============================================================================
+# PARSER DE CELULARES ADMINISTRATIVOS (NOVO)
+# ==============================================================================
+
+def _extrair_responsavel(nome_dispositivo):
+    """
+    Extrai o responsável (usuário ou loja) do nome do dispositivo.
+    Regra: sufixo após o separador " - " (ex: "14120 - Vanusa" → "Vanusa").
+    Sem separador, retorna string vazia.
+    """
+    if not nome_dispositivo or not isinstance(nome_dispositivo, str):
+        return ""
+    if " - " in nome_dispositivo:
+        return nome_dispositivo.split(" - ", 1)[1].strip()
+    return ""
+
+def _extrair_ipv4(ip_local):
+    """
+    A planilha envia 'IP Local' no formato "IPv6,IPv4".
+    Extrai apenas o IPv4 para exibição (ex: "192.168.15.197").
+    """
+    if not ip_local or not isinstance(ip_local, str):
+        return ""
+    for parte in ip_local.split(","):
+        parte = parte.strip()
+        if parte and ":" not in parte and "." in parte:
+            return parte
+    return ""
+
+def parsear_data_envio(data_str):
+    """
+    Converte 'Data do Último Envio dos Dados' (ex: "14/08/2026, 14:35:55")
+    para datetime timezone-aware (UTC-3). Retorna pd.NaT se inválida.
+    """
+    if pd.isna(data_str) or not isinstance(data_str, str):
+        return pd.NaT
+        
+    data_str = data_str.strip().replace(", ", " ").replace(",", " ")
+    
+    for fmt in ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y"):
+        try:
+            return TZ_BR.localize(datetime.strptime(data_str, fmt))
+        except ValueError:
+            continue
+            
+    return pd.NaT
+
+def processar_planilha_celulares(df_bruto):
+    """
+    Processa o DataFrame bruto da planilha de Celulares Administrativos.
+    Aplica a MESMA lógica de categorização do Inventário GB:
+    - Local: código BPCS (coluna 'Identificação') → config.MAPEAMENTO_BPCS_LOCAL,
+      com fillna('Desconhecido') para códigos ausentes (ex: linha "teste").
+    - Responsável: sufixo após " - " em 'Nome do dispositivo'.
+    - Status de comunicação: mesma regra de negócio dos computadores
+      (config.DIAS_LIMITE_ATRASO = 30 dias) sobre a data do último envio.
+    """
+    if df_bruto.empty:
+        return pd.DataFrame()
+        
+    df = df_bruto.copy()
+    
+    # --- LOCAL (categorização BPCS, idêntica ao GB) ---
+    id_col = next((col for col in df.columns if col.strip().lower() in ('identificação', 'identificacao')), None)
+    if not id_col:
+        id_col = next((col for col in df.columns if 'identifica' in col.lower()), None)
+    if id_col:
+        df['Codigo_BPCS'] = df[id_col].astype(str).str.strip()
+        df['Codigo_BPCS'] = df['Codigo_BPCS'].replace(['', 'nan', 'NaN', 'N/A', 'n/a'], '')
+        df['Local'] = df['Codigo_BPCS'].map(config.MAPEAMENTO_BPCS_LOCAL).fillna('Desconhecido')
+    else:
+        df['Codigo_BPCS'] = ''
+        df['Local'] = 'Desconhecido'
+    
+    # --- NOME DO DISPOSITIVO + RESPONSÁVEL ---
+    nome_col = next((col for col in df.columns if 'dispositivo' in col.lower()), None)
+    if nome_col:
+        df['Nome_Dispositivo'] = df[nome_col].astype(str).str.strip()
+        df['Nome_Dispositivo'] = df['Nome_Dispositivo'].replace(['', 'nan', 'NaN', 'N/A', 'n/a'], '')
+    else:
+        df['Nome_Dispositivo'] = ''
+    df['Responsavel'] = df['Nome_Dispositivo'].apply(_extrair_responsavel)
+    
+    # --- CAMPOS TÉCNICOS (sanitização Camada 2) ---
+    def _coluna_texto(col, padrao=''):
+        if col:
+            return (
+                df[col].astype(str).str.strip()
+                .replace(['', 'nan', 'NaN', 'N/A', 'n/a', 'None', 'none'], padrao)
+                .apply(sanitizar_valor)
+            )
+        return pd.Series([padrao] * len(df), index=df.index)
+    
+    modelo_col = next((col for col in df.columns if col.strip().lower() == 'modelo'), None)
+    imei_col = next((col for col in df.columns if 'imei' in col.lower()), None)
+    serial_col = next((col for col in df.columns if 'série' in col.lower() or 'serie' in col.lower()), None)
+    politica_col = next((col for col in df.columns if 'politic' in col.lower() or 'polític' in col.lower()), None)
+    versao_col = next((col for col in df.columns if 'versão' in col.lower() or 'versao' in col.lower()), None)
+    status_inv_col = next((col for col in df.columns if 'status' in col.lower() and 'invent' in col.lower()), None)
+    ip_col = next((col for col in df.columns if 'ip local' in col.lower()), None)
+    hostname_col = next((col for col in df.columns if 'hostname' in col.lower()), None)
+    
+    df['Modelo'] = _coluna_texto(modelo_col)
+    df['IMEI'] = _coluna_texto(imei_col)
+    df['Serial'] = _coluna_texto(serial_col)
+    df['Politica'] = _coluna_texto(politica_col, 'Sem Política')
+    df['Versao_SO'] = _coluna_texto(versao_col)
+    df['Status_Inventario'] = _coluna_texto(status_inv_col, 'Sem Info')
+    df['IP_Local'] = _coluna_texto(ip_col).apply(_extrair_ipv4)
+    df['Hostname'] = _coluna_texto(hostname_col)
+    
+    # --- DATA DO ÚLTIMO ENVIO + STATUS (mesma regra dos 30 dias) ---
+    data_col = next((col for col in df.columns if 'ultimo envio' in col.lower() or 'último envio' in col.lower()), None)
+    if data_col:
+        df['Data_Ultimo_Envio'] = df[data_col].apply(parsear_data_envio)
+    else:
+        df['Data_Ultimo_Envio'] = pd.to_datetime(pd.Series([pd.NaT] * len(df), index=df.index))
+    
+    hoje = pd.Timestamp.now(tz=TZ_BR).normalize()
+    df['Dias_Sem_Comunicacao'] = (hoje - df['Data_Ultimo_Envio']).dt.days
+    
+    def get_status_comunicacao(dias):
+        if pd.isna(dias):
+            return "⚪ Sem Info"
+        if dias > config.DIAS_LIMITE_ATRASO:
+            return "🔴 Desatualizado"
+        return "🟢 OK"
+    
+    df['Status_Comunicacao'] = df['Dias_Sem_Comunicacao'].apply(get_status_comunicacao)
+    df['Data_Ultimo_Envio_Str'] = df['Data_Ultimo_Envio'].dt.strftime('%d/%m/%Y %H:%M').fillna('')
+    
+    # --- ORDENAÇÃO (mais recentes primeiro, como nas demais abas) ---
+    df = df.sort_values(by="Data_Ultimo_Envio", ascending=False, na_position='last')
+    
+    colunas_ordem = [
+        "Status_Comunicacao", "Local", "Codigo_BPCS", "Responsavel",
+        "Nome_Dispositivo", "Modelo", "IMEI", "Serial", "Politica",
+        "Versao_SO", "Status_Inventario", "Dias_Sem_Comunicacao",
+        "Data_Ultimo_Envio", "Data_Ultimo_Envio_Str", "IP_Local", "Hostname"
+    ]
+    
+    for col in colunas_ordem:
+        if col not in df.columns:
+            df[col] = ""
+            
+    df = df[colunas_ordem]
+    return df.reset_index(drop=True)

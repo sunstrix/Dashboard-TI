@@ -1,0 +1,7 @@
+# ==============================================================================
+# CREDENCIAIS DA API DO GOOGLE DRIVE
+# ==============================================================================
+# ATENÇÃO: Este arquivo NUNCA deve ser enviado para o GitHub!
+# Ele já está protegido pelo .gitignore
+
+GOOGLE_DRIVE_API_KEY=AIzaSyDkiek3zTvZR9Dga7LeymHoSm9UKTZFomA

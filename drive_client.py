@@ -1,9 +1,38 @@
 import streamlit as st
 import requests
 import time
+import io
+import re
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseDownload
 import config
+
+# ==============================================================================
+# FUNÇÃO UTILITÁRIA: SANITIZAÇÃO DE CONTEÚDO
+# ==============================================================================
+def _sanitizar_conteudo(conteudo):
+    """
+    Remove caracteres de controle ilegais do openpyxl do conteúdo bruto.
+    Preserva emojis e caracteres Unicode válidos.
+    
+    Caracteres removidos (ilegais no XML 1.0 usado pelo Excel):
+    - \x00-\x08: Nulos e caracteres de controle básicos
+    - \x0b-\x0c: Tabulação vertical e form feed
+    - \x0e-\x1f: Caracteres de controle ASCII
+    - \x7f-\x9f: DEL e caracteres C1 de controle
+    
+    Caracteres preservados:
+    - \t (0x09), \n (0x0A), \r (0x0D): Tab, newline, carriage return
+    - Emojis (🟢, 🔴, ⚠️, etc.)
+    - Caracteres Unicode válidos (acentos, símbolos, etc.)
+    """
+    if not conteudo:
+        return conteudo
+    
+    # Regex do openpyxl para caracteres ilegais em XML 1.0
+    illegal_char_regex = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
+    return illegal_char_regex.sub('', conteudo)
 
 def _get_drive_service():
     """Inicializa o cliente da API do Google Drive usando a API Key."""
@@ -74,26 +103,33 @@ def _listar_arquivos_drive():
 
 def _baixar_arquivo_drive(file_id, max_retries=3):
     """
-    Baixa o conteúdo de um arquivo de texto do Drive usando requests.
+    Baixa o conteúdo de um arquivo de texto do Drive via URL de export público.
+    Funciona para arquivos compartilhados como 'Qualquer pessoa com o link'.
     Inclui retry automático com backoff exponencial em caso de falha.
+    Aplica sanitização no conteúdo bruto para remover caracteres ilegais.
     """
-    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={config.GOOGLE_API_KEY}"
+    url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
     
     for tentativa in range(max_retries):
         try:
-            response = requests.get(url, timeout=15)
+            response = requests.get(url, timeout=30, allow_redirects=True)
             response.raise_for_status()
             
             # Tenta decodificar como UTF-8, fallback para latin-1 (comum em PT-BR Windows)
             try:
-                return response.content.decode('utf-8')
+                conteudo = response.content.decode('utf-8')
             except UnicodeDecodeError:
-                return response.content.decode('latin-1')
+                conteudo = response.content.decode('latin-1')
+            
+            # SANITIZAÇÃO: Remove caracteres de controle ilegais do conteúdo bruto
+            conteudo_sanitizado = _sanitizar_conteudo(conteudo)
+            
+            return conteudo_sanitizado
                 
         except requests.exceptions.RequestException as e:
             if tentativa == max_retries - 1:
                 raise
-            time.sleep(2 ** tentativa) # Backoff exponencial: 1s, 2s, 4s...
+            time.sleep(2 ** tentativa)  # Backoff exponencial: 1s, 2s, 4s...
 
 @st.cache_data(ttl=config.CACHE_TTL, show_spinner="📡 Conectando ao Google Drive e baixando snapshots...")
 def carregar_snapshots_drive():

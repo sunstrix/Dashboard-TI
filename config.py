@@ -38,8 +38,8 @@ SHEETS_SPREADSHEET_ID_CELULARES = "1JBJDDeev78OxcGbcviKnPKERMMazZVct-khEXPMZUuU"
 SHEETS_ABA_CELULARES = "Relatório_Dispositivos"
 
 # GID (ID numérico) da aba de celulares
-# "0" é inválido nesta planilha; o sheets_client faz fallback automático para a 1ª aba
-SHEETS_GID_CELULARES = "0"
+# Para encontrar: abra a planilha, clique na aba, e copie o número após #gid= na URL
+SHEETS_GID_CELULARES = "0"  # GID da aba Relatório_Dispositivos (ajustar se necessário)
 
 # ==============================================================================
 # CONFIGURAÇÕES DE CACHE E PERFORMANCE
@@ -64,6 +64,7 @@ NOME_SISTEMA = "Inventário de Hardware & Suporte"
 # ==============================================================================
 # IDENTIDADE VISUAL (TEMA ESCURO TI)
 # ==============================================================================
+# Paleta de cores inspirada em terminais modernos e dashboards corporativos
 CORES = {
     "fundo_app": "#0e1117",       # Fundo padrão Streamlit Dark
     "fundo_card": "#161b22",      # Fundo dos cards de métricas (GitHub Dark Dimmed)
@@ -95,11 +96,13 @@ PLOTLY_TEMPLATE_CONFIG = {
 # ==============================================================================
 # CONSTANTES DE PARSING
 # ==============================================================================
+# Palavras-chave que indicam início de seção no arquivo de snapshot
 SECOES_VALIDAS = ["[ID]", "[HARDWARE]", "[SUPORTE]"]
 
 # ==============================================================================
 # MAPEAMENTO BPCS → LOCAL (INVENTÁRIO GB E CELULARES)
 # ==============================================================================
+# Dicionário que mapeia o código BPCS da planilha para o nome oficial do Local
 MAPEAMENTO_BPCS_LOCAL = {
     "4830": "MATRIZ",
     "4842": "METRÓPOLE",
@@ -124,6 +127,7 @@ MAPEAMENTO_BPCS_LOCAL = {
 # ==============================================================================
 # LISTA DE EXCLUSÕES DO GOOGLE DRIVE
 # ==============================================================================
+# Nomes de pastas e arquivos que devem ser ignorados durante a leitura dos snapshots
 EXCLUSOES_DRIVE = {
     "pastas": ["Boticário"],
     "arquivos": ["google planilhas 20260618_Visao_detalhada_e335a48d9368"]
@@ -132,4 +136,6 @@ EXCLUSOES_DRIVE = {
 # ==============================================================================
 # CONFIGURAÇÕES DO INVENTÁRIO GB — PERIFÉRICOS (MONITORES)
 # ==============================================================================
+# ID da pasta no Google Drive que contém os snapshots de periféricos do GB.
+# URL da pasta: https://drive.google.com/drive/u/1/folders/19LF-SGi7TZ2dEA3FjiyOoGMK0O93DIGJ
 DRIVE_FOLDER_ID_GB_PERIFERICOS = "19LF-SGi7TZ2dEA3FjiyOoGMK0O93DIGJ"

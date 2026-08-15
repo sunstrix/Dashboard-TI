@@ -11,6 +11,8 @@ TZ_BR = pytz.timezone("America/Sao_Paulo")
 # ==============================================================================
 # CONSTANTES DE VALIDAÇÃO DE PERIFÉRICOS (CORREÇÃO FASE 0)
 # ==============================================================================
+# Valores que invalidam um número de série (periférico é descartado).
+# Antes apenas "" e "0" eram barrados; "N/A" e "-" poluíam o inventário.
 SERIAIS_INVALIDOS = {"", "0", "N/A", "n/a", "NA", "na", "-", "--", "null", "none", "None"}
 
 # ==============================================================================
@@ -20,10 +22,22 @@ def sanitizar_valor(valor):
     """
     Remove caracteres de controle ilegais do openpyxl de uma string.
     Preserva emojis e caracteres Unicode válidos.
+    
+    Caracteres removidos (ilegais no XML 1.0 usado pelo Excel):
+    - \x00-\x08: Nulos e caracteres de controle básicos
+    - \x0b-\x0c: Tabulação vertical e form feed
+    - \x0e-\x1f: Caracteres de controle ASCII
+    - \x7f-\x9f: DEL e caracteres C1 de controle
+    
+    Caracteres preservados:
+    - \t (0x09), \n (0x0A), \r (0x0D): Tab, newline, carriage return
+    - Emojis (🟢, 🔴, ️, etc.)
+    - Caracteres Unicode válidos (acentos, símbolos, etc.)
     """
     if not valor or not isinstance(valor, str):
         return valor
     
+    # Regex do openpyxl para caracteres ilegais em XML 1.0
     illegal_char_regex = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
     return illegal_char_regex.sub('', valor)
 
@@ -56,6 +70,10 @@ def parsear_data_geracao(texto, data_fallback_drive):
     
     CORREÇÃO DE BUG (FASE 0): quando nenhuma das duas fontes funciona,
     retorna a data sentinela 01/01/1970 em vez de datetime.now().
+    Antes, snapshots corrompidos apareciam como "atualizados hoje",
+    ocultando máquinas quebradas no painel. Com a data sentinela:
+    1) A máquina aparece como 🔴 Desatualizada;
+    2) A deduplicação por ID prioriza snapshots com data válida.
     """
     match = re.search(r"Gerado em:\s*(\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2})", texto, re.IGNORECASE)
     if match:
@@ -128,8 +146,12 @@ def parsear_snapshot(conteudo, nome_arquivo, data_modificacao_drive):
             chave = chave.strip().replace(" ", "_").upper()
             valor = valor.strip()
             
+            # CORREÇÃO BUG #1: Regex atualizado para remover underscores E espaços antes do parêntese
+            # Transforma "ID_(MAC/PROC)" em "ID" para compatibilidade com snapshots novos
+            # Também funciona com "ID (MAC/PROC)" → "ID" (caso tenha espaço em vez de underscore)
             chave_normalizada = re.sub(r'[_\s]*\([^)]*\)', '', chave).strip()
             
+            # SANITIZAÇÃO: Remove caracteres de controle ilegais do valor
             valor_sanitizado = sanitizar_valor(valor)
             
             if secao_atual == "ID":
@@ -218,10 +240,13 @@ def processar_todos_snapshots(lista_snapshots_brutos):
 def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
     """
     Extrai monitores da seção 'PERIFÉRICOS — MONITORES' do snapshot.
+    Regex refinada para aceitar variações de travessão (— ou -).
     FILTRA: Ignora monitores com número de série inválido ("0", "N/A", "-", ...).
+    Aplica sanitização em todos os valores extraídos.
     """
     monitores = []
     
+    # Regex tolerante: aceita tanto "—" (em dash) quanto "-" (hífen)
     match_monitores = re.search(
         r'PERIF[ÉE]RICOS\s*[-—]\s*MONITORES\s*\n\s*={5,}\s*\n(.*?)(?=\n\s*={5,}\s*\n|\Z)',
         conteudo,
@@ -233,6 +258,7 @@ def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
     
     conteudo_monitores = match_monitores.group(1)
     
+    # Encontra todos os monitores
     monitores_matches = re.finditer(
         r'Monitor\s+\d+:\s*\n(.*?)(?=\n\s*Monitor\s+\d+:|\Z)',
         conteudo_monitores,
@@ -245,13 +271,15 @@ def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
         modelo_match = re.search(r'Modelo\s*:\s*(.+)', bloco_monitor)
         modelo = modelo_match.group(1).strip() if modelo_match else ""
         
+        # Regex tolerante: aceita "Nº", "N°", "N." e variações de "Série"
         serial_match = re.search(r'N[º°\.]?\s*de\s*S[ée]rie\s*:\s*(.+)', bloco_monitor)
         serial = serial_match.group(1).strip() if serial_match else ""
         
+        # SANITIZAÇÃO: Remove caracteres de controle ilegais
         modelo = sanitizar_valor(modelo)
         serial = sanitizar_valor(serial)
         
-        # CORREÇÃO FASE 0: barra seriais inválidos via SERIAIS_INVALIDOS
+        # CORREÇÃO FASE 0: barra seriais inválidos ("0", "N/A", "-", ...) via SERIAIS_INVALIDOS
         if modelo and serial not in SERIAIS_INVALIDOS:
             monitores.append({
                 "Local": local,
@@ -266,7 +294,8 @@ def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
 def parsear_impressoras_do_snapshot(conteudo, local, data_snapshot):
     """
     Extrai impressoras da seção 'PERIFÉRICOS — IMPRESSORAS' do snapshot.
-    FILTRA: Apenas impressoras com número de série válido.
+    FILTRA: Apenas impressoras com número de série válido (ignora "", "0", "N/A", ...).
+    Aplica sanitização em todos os valores extraídos.
     """
     impressoras = []
     
@@ -302,12 +331,13 @@ def parsear_impressoras_do_snapshot(conteudo, local, data_snapshot):
         ip_match = re.search(r'IP\s*:\s*(.+)', bloco_impressora)
         ip = ip_match.group(1).strip() if ip_match else ""
         
+        # SANITIZAÇÃO: Remove caracteres de controle ilegais
         nome = sanitizar_valor(nome)
         serial = sanitizar_valor(serial)
         modelo = sanitizar_valor(modelo)
         ip = sanitizar_valor(ip)
         
-        # CORREÇÃO FASE 0: barra seriais inválidos via SERIAIS_INVALIDOS
+        # CORREÇÃO FASE 0: barra seriais inválidos ("", "0", "N/A", "-", ...) via SERIAIS_INVALIDOS
         if serial in SERIAIS_INVALIDOS:
             continue
         
@@ -331,6 +361,7 @@ def processar_perifericos(lista_snapshots_brutos):
     todos_monitores = []
     todas_impressoras = []
     
+    # Proteção: se lista estiver vazia ou None, retorna DataFrames vazios
     if not lista_snapshots_brutos:
         return pd.DataFrame(), pd.DataFrame()
     
@@ -354,6 +385,7 @@ def processar_perifericos(lista_snapshots_brutos):
         except Exception as e:
             st.warning(f"⚠️ Erro ao processar periféricos do arquivo {snap.get('nome_arquivo', 'Desconhecido')}: {e}")
     
+    # Processa Monitores com proteção
     df_monitores = pd.DataFrame()
     if todos_monitores:
         df_monitores = pd.DataFrame(todos_monitores)
@@ -364,6 +396,7 @@ def processar_perifericos(lista_snapshots_brutos):
             df_monitores["Data_Snapshot_Str"] = df_monitores["Data_Snapshot"].dt.strftime("%d/%m/%Y %H:%M")
             df_monitores = df_monitores.reset_index(drop=True)
     
+    # Processa Impressoras com proteção
     df_impressoras = pd.DataFrame()
     if todas_impressoras:
         df_impressoras = pd.DataFrame(todas_impressoras)
@@ -473,6 +506,7 @@ def _extrair_responsavel(nome_dispositivo):
     """
     Extrai o responsável (usuário ou loja) do nome do dispositivo.
     Regra: sufixo após o separador " - " (ex: "14120 - Vanusa" → "Vanusa").
+    Sem separador, retorna string vazia.
     """
     if not nome_dispositivo or not isinstance(nome_dispositivo, str):
         return ""
@@ -515,9 +549,11 @@ def processar_planilha_celulares(df_bruto):
     """
     Processa o DataFrame bruto da planilha de Celulares Administrativos.
     Aplica a MESMA lógica de categorização do Inventário GB:
-    - Local: código BPCS (coluna 'Identificação') → config.MAPEAMENTO_BPCS_LOCAL
-    - Responsável: sufixo após " - " em 'Nome do dispositivo'
-    - Status: mesma regra de 30 dias (DIAS_LIMITE_ATRASO)
+    - Local: código BPCS (coluna 'Identificação') → config.MAPEAMENTO_BPCS_LOCAL,
+      com fillna('Desconhecido') para códigos ausentes (ex: linha "teste").
+    - Responsável: sufixo após " - " em 'Nome do dispositivo'.
+    - Status de comunicação: mesma regra de negócio dos computadores
+      (config.DIAS_LIMITE_ATRASO = 30 dias) sobre a data do último envio.
     """
     if df_bruto.empty:
         return pd.DataFrame()
@@ -593,6 +629,7 @@ def processar_planilha_celulares(df_bruto):
     df['Status_Comunicacao'] = df['Dias_Sem_Comunicacao'].apply(get_status_comunicacao)
     df['Data_Ultimo_Envio_Str'] = df['Data_Ultimo_Envio'].dt.strftime('%d/%m/%Y %H:%M').fillna('')
     
+    # --- ORDENAÇÃO (mais recentes primeiro, como nas demais abas) ---
     df = df.sort_values(by="Data_Ultimo_Envio", ascending=False, na_position='last')
     
     colunas_ordem = [

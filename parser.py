@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+import math
 import pytz
 import pandas as pd
 import streamlit as st
@@ -9,11 +10,15 @@ import config
 TZ_BR = pytz.timezone("America/Sao_Paulo")
 
 # ==============================================================================
-# CONSTANTES DE VALIDAÇÃO DE PERIFÉRICOS (CORREÇÃO FASE 0)
+# CONSTANTES DE VALIDAÇÃO DE PERIFÉRICOS (CORREÇÃO FASE 0 + CASE-INSENSITIVE)
 # ==============================================================================
 # Valores que invalidam um número de série (periférico é descartado).
 # Antes apenas "" e "0" eram barrados; "N/A" e "-" poluíam o inventário.
-SERIAIS_INVALIDOS = {"", "0", "N/A", "n/a", "NA", "na", "-", "--", "null", "none", "None"}
+# CORREÇÃO FASE 1: Agora a validação é case-insensitive (pegando "Null", "NULL", "n/A", etc.)
+SERIAIS_INVALIDOS = {
+    "", "0", "n/a", "na", "-", "--", "null", "none", 
+    "sem série", "sem serie", "sem sn", "s/n", "sn"
+}
 
 # ==============================================================================
 # FUNÇÃO UTILITÁRIA: SANITIZAÇÃO DE VALORES
@@ -49,18 +54,22 @@ def arredondar_ram(memoria_ram_texto):
     """
     Converte texto de memória RAM (ex: "7,7 GB", "31,4 GB") para float arredondado para cima.
     Regra: 7,7GB → 8GB, 3,2GB → 4GB, 15,1GB → 16GB
+    
+    CORREÇÃO FASE 1: Retorna -1 (valor sentinela) em caso de erro de parsing
+    para que o app.py possa exibir '🔴 Erro Parsing' em vez de '✅ OK'.
     """
     if not memoria_ram_texto or pd.isna(memoria_ram_texto):
-        return 0.0
+        return -1.0
     
     try:
         memoria_str = str(memoria_ram_texto).replace("GB", "").replace("gb", "").strip()
         memoria_str = memoria_str.replace(",", ".")
         memoria_float = float(memoria_str)
-        import math
+        if memoria_float <= 0:
+            return -1.0  # Valor inválido (ex: 0GB)
         return math.ceil(memoria_float)
     except (ValueError, AttributeError):
-        return 0.0
+        return -1.0
 
 def parsear_data_geracao(texto, data_fallback_drive):
     """
@@ -112,7 +121,7 @@ def parsear_snapshot(conteudo, nome_arquivo, data_modificacao_drive):
         "Modelo_Sistema": "",
         "Processador": "",
         "Memoria_RAM": "",
-        "Memoria_RAM_GB": 0.0,
+        "Memoria_RAM_GB": -1.0,
         "Windows": "",
         "ID": "",
         "AnyDesk": "",
@@ -211,12 +220,15 @@ def processar_todos_snapshots(lista_snapshots_brutos):
     if df_antes > df_depois:
         duplicatas = df[df.duplicated(subset=["ID"], keep="first")]
         for _, row in duplicatas.iterrows():
+            # CORREÇÃO FASE 1: Log mais claro com contexto (motivo da exclusão)
             log_duplicatas.append(
-                f"Descartado: {row['Nome_Arquivo']} (ID: {row['ID']}) - "
-                f"Data: {row['Data_Snapshot'].strftime('%d/%m/%Y %H:%M')}"
+                f"Descartado (Duplicata de ID): {row['Nome_Arquivo']} (ID: {row['ID']}) - "
+                f"Data: {row['Data_Snapshot'].strftime('%d/%m/%Y %H:%M')} "
+                f"(Mantido: snapshot mais recente)"
             )
             
-    df_final["Data_Snapshot_Str"] = df_final["Data_Snapshot"].dt.strftime("%d/%m/%Y %H:%M")
+    # CORREÇÃO FASE 1: fillna para evitar exibição de 'NaT' na tabela
+    df_final["Data_Snapshot_Str"] = df_final["Data_Snapshot"].dt.strftime("%d/%m/%Y %H:%M").fillna('Sem Info')
     
     colunas_ordem = [
         "Local", "Usuario", "Nome_Computador", "Modelo_Sistema", "Processador", 
@@ -279,8 +291,10 @@ def parsear_monitores_do_snapshot(conteudo, local, usuario, data_snapshot):
         modelo = sanitizar_valor(modelo)
         serial = sanitizar_valor(serial)
         
-        # CORREÇÃO FASE 0: barra seriais inválidos ("0", "N/A", "-", ...) via SERIAIS_INVALIDOS
-        if modelo and serial not in SERIAIS_INVALIDOS:
+        # CORREÇÃO FASE 1: Validação Case-Insensitive de seriais inválidos
+        serial_normalizado = serial.strip().lower() if isinstance(serial, str) else ""
+        
+        if modelo and serial_normalizado not in SERIAIS_INVALIDOS:
             monitores.append({
                 "Local": local,
                 "Usuario": usuario,
@@ -322,10 +336,14 @@ def parsear_impressoras_do_snapshot(conteudo, local, data_snapshot):
         nome_match = re.search(r'Nome\s*:\s*(.+)', bloco_impressora)
         nome = nome_match.group(1).strip() if nome_match else ""
         
-        serial_match = re.search(r'Serial\s*\(?SNMP\)?\s*:\s*(.+)', bloco_impressora)
+        # CORREÇÃO FASE 1: Regex corrigida. Antes exigia literalmente "SNMP".
+        # Agora aceita qualquer sufixo entre parênteses ou nenhum sufixo.
+        # Exemplos aceitos: "Serial: ABC", "Serial (SNMP): ABC", "Serial (MAC): ABC"
+        serial_match = re.search(r'Serial\s*(?:\([^)]+\))?\s*:\s*(.+)', bloco_impressora)
         serial = serial_match.group(1).strip() if serial_match else ""
         
-        modelo_match = re.search(r'Modelo\s*\(?SNMP\)?\s*:\s*(.+)', bloco_impressora)
+        # Mesmo ajuste para o Modelo
+        modelo_match = re.search(r'Modelo\s*(?:\([^)]+\))?\s*:\s*(.+)', bloco_impressora)
         modelo = modelo_match.group(1).strip() if modelo_match else ""
         
         ip_match = re.search(r'IP\s*:\s*(.+)', bloco_impressora)
@@ -337,8 +355,9 @@ def parsear_impressoras_do_snapshot(conteudo, local, data_snapshot):
         modelo = sanitizar_valor(modelo)
         ip = sanitizar_valor(ip)
         
-        # CORREÇÃO FASE 0: barra seriais inválidos ("", "0", "N/A", "-", ...) via SERIAIS_INVALIDOS
-        if serial in SERIAIS_INVALIDOS:
+        # CORREÇÃO FASE 1: Validação Case-Insensitive de seriais inválidos
+        serial_normalizado = serial.strip().lower() if isinstance(serial, str) else ""
+        if serial_normalizado in SERIAIS_INVALIDOS:
             continue
         
         if nome:
@@ -393,7 +412,8 @@ def processar_perifericos(lista_snapshots_brutos):
             df_monitores = df_monitores.sort_values(by="Data_Snapshot", ascending=False)
             if 'Serial_Monitor' in df_monitores.columns:
                 df_monitores = df_monitores.drop_duplicates(subset=["Serial_Monitor"], keep="first")
-            df_monitores["Data_Snapshot_Str"] = df_monitores["Data_Snapshot"].dt.strftime("%d/%m/%Y %H:%M")
+            # CORREÇÃO FASE 1: fillna para evitar 'NaT' na tabela
+            df_monitores["Data_Snapshot_Str"] = df_monitores["Data_Snapshot"].dt.strftime("%d/%m/%Y %H:%M").fillna('Sem Info')
             df_monitores = df_monitores.reset_index(drop=True)
     
     # Processa Impressoras com proteção
@@ -404,7 +424,8 @@ def processar_perifericos(lista_snapshots_brutos):
             df_impressoras = df_impressoras.sort_values(by="Data_Snapshot", ascending=False)
             if 'Serial_Impressora' in df_impressoras.columns:
                 df_impressoras = df_impressoras.drop_duplicates(subset=["Serial_Impressora"], keep="first")
-            df_impressoras["Data_Snapshot_Str"] = df_impressoras["Data_Snapshot"].dt.strftime("%d/%m/%Y %H:%M")
+            # CORREÇÃO FASE 1: fillna para evitar 'NaT' na tabela
+            df_impressoras["Data_Snapshot_Str"] = df_impressoras["Data_Snapshot"].dt.strftime("%d/%m/%Y %H:%M").fillna('Sem Info')
             df_impressoras = df_impressoras.reset_index(drop=True)
     
     return df_monitores, df_impressoras
@@ -494,7 +515,8 @@ def processar_planilha_gb(df_bruto):
         return "🟢 Válida"
         
     df['Status_Garantia'] = df['Dias_Restantes'].apply(get_status_garantia)
-    df['Data_Garantia_Str'] = df['Data_Garantia'].dt.strftime('%d/%m/%Y')
+    # CORREÇÃO FASE 1: fillna para evitar exibição de 'NaT' na tabela
+    df['Data_Garantia_Str'] = df['Data_Garantia'].dt.strftime('%d/%m/%Y').fillna('Sem Info')
     
     return df
 
@@ -518,14 +540,16 @@ def _extrair_ipv4(ip_local):
     """
     A planilha envia 'IP Local' no formato "IPv6,IPv4".
     Extrai apenas o IPv4 para exibição (ex: "192.168.15.197").
+    
+    CORREÇÃO FASE 1: Usa regex robusta para extrair IPv4 em qualquer contexto
+    (ex: "Gateway: 192.168.1.1, DNS: 8.8.8.8" retorna o primeiro IPv4 encontrado).
     """
     if not ip_local or not isinstance(ip_local, str):
         return ""
-    for parte in ip_local.split(","):
-        parte = parte.strip()
-        if parte and ":" not in parte and "." in parte:
-            return parte
-    return ""
+    
+    # Regex para validar IPv4 (4 octetos separados por ponto)
+    match = re.search(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', ip_local)
+    return match.group(0) if match else ""
 
 def parsear_data_envio(data_str):
     """
@@ -627,7 +651,8 @@ def processar_planilha_celulares(df_bruto):
         return "🟢 OK"
     
     df['Status_Comunicacao'] = df['Dias_Sem_Comunicacao'].apply(get_status_comunicacao)
-    df['Data_Ultimo_Envio_Str'] = df['Data_Ultimo_Envio'].dt.strftime('%d/%m/%Y %H:%M').fillna('')
+    # CORREÇÃO FASE 1: fillna('Sem Info') em vez de fillna('') para melhor UX na tabela
+    df['Data_Ultimo_Envio_Str'] = df['Data_Ultimo_Envio'].dt.strftime('%d/%m/%Y %H:%M').fillna('Sem Info')
     
     # --- ORDENAÇÃO (mais recentes primeiro, como nas demais abas) ---
     df = df.sort_values(by="Data_Ultimo_Envio", ascending=False, na_position='last')

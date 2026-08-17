@@ -4,7 +4,6 @@ import requests
 import io
 import config
 
-
 # ==============================================================================
 # FUNÇÃO GENÉRICA DE DOWNLOAD DE PLANILHAS (DRY)
 # ==============================================================================
@@ -64,7 +63,6 @@ def _baixar_csv_de_planilha(spreadsheet_id, gid, nome_log):
     except Exception as e:
         raise ValueError(f"Erro inesperado ao baixar a planilha {nome_log}: {e}")
 
-
 # ==============================================================================
 # WRAPPERS DE DOWNLOAD (preservam a interface interna original)
 # ==============================================================================
@@ -79,7 +77,6 @@ def _baixar_planilha_csv():
         "GB (PDV)"
     )
 
-
 def _baixar_planilha_celulares_csv():
     """
     Wrapper para download da planilha de Celulares Administrativos.
@@ -89,7 +86,6 @@ def _baixar_planilha_celulares_csv():
         config.SHEETS_GID_CELULARES,
         "Celulares Administrativos"
     )
-
 
 # ==============================================================================
 # CARREGAMENTO E PARSE DO CSV (reutilizável)
@@ -109,16 +105,18 @@ def _csv_para_dataframe(csv_content, nome_planilha):
         df.columns = df.columns.str.strip()
         
         # Remove espaços em branco nos valores de todas as colunas de string
+        # CORREÇÃO FASE 1: Usa isinstance() para evitar que valores não-string
+        # (ex: int, float, datas em colunas de tipos mistos) virem NaN silenciosamente.
+        # Antes: df[col].str.strip() transformava qualquer não-string em NaN.
         for col in df.columns:
             if df[col].dtype == 'object':
-                df[col] = df[col].str.strip()
+                df[col] = df[col].apply(lambda x: x.strip() if isinstance(x, str) else x)
         
         return df
         
     except Exception as e:
         st.error(f"❌ Erro ao processar o CSV da planilha {nome_planilha}: {e}")
         return pd.DataFrame()
-
 
 # ==============================================================================
 # FUNÇÕES PÚBLICAS COM CACHE (Streamlit)
@@ -144,7 +142,6 @@ def carregar_planilha_gb():
         return pd.DataFrame()
     
     return _csv_para_dataframe(csv_content, "GB (PDV)")
-
 
 @st.cache_data(ttl=config.CACHE_TTL, show_spinner="📱 Conectando ao Google Sheets e lendo planilha de Celulares...")
 def carregar_planilha_celulares():

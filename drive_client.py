@@ -88,14 +88,15 @@ def _listar_arquivos_drive():
         if not nome.endswith('.txt'):
             continue
         
-        # Ignora arquivos na lista de exclusões do config
+        # Ignora arquivos na lista de exclusões do config (match exato)
         if nome in config.EXCLUSOES_DRIVE.get('arquivos', []):
             continue
         
-        # Ignora arquivos cujos nomes contenham palavras-chave de pastas excluídas
-        pastas_excluidas = config.EXCLUSOES_DRIVE.get('pastas', [])
-        if any(pasta.lower() in nome.lower() for pasta in pastas_excluidas):
-            continue
+        # CORREÇÃO FASE 1: Removido o filtro 'any(pasta.lower() in nome.lower() ...)'.
+        # A query da API ('{DRIVE_FOLDER_ID}' in parents) já garante que apenas arquivos
+        # DIRETOS da pasta raiz sejam listados (a API do Drive não é recursiva por padrão).
+        # Manter o filtro de substring causava falso positivo, excluindo arquivos válidos
+        # na raiz que por acaso tinham o nome da loja no título (ex: 'inventario_boticario.txt').
         
         arquivos_filtrados.append(arquivo)
     
@@ -129,6 +130,9 @@ def _baixar_arquivo_drive(file_id, max_retries=3):
         except requests.exceptions.RequestException as e:
             if tentativa == max_retries - 1:
                 raise
+            
+            # CORREÇÃO FASE 1: Feedback visual de retry para o usuário não achar que travou
+            st.warning(f"⚠️ Falha no download (tentativa {tentativa + 1}/{max_retries}). Tentando novamente em {2 ** tentativa}s...")
             time.sleep(2 ** tentativa)  # Backoff exponencial: 1s, 2s, 4s...
 
 @st.cache_data(ttl=config.CACHE_TTL, show_spinner="📡 Conectando ao Google Drive e baixando snapshots...")

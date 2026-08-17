@@ -129,6 +129,9 @@ MAPEAMENTO_BPCS_LOCAL = {
 # ==============================================================================
 # Nomes de pastas e arquivos que devem ser ignorados durante a leitura dos snapshots
 EXCLUSOES_DRIVE = {
+    # NOTA FASE 1: a chave "pastas" não é mais consumida pelo drive_client.py
+    # (a exclusão por substring causava falso positivo e foi removida).
+    # Mantida aqui para referência futura / possível uso em listagem recursiva.
     "pastas": ["Boticário"],
     "arquivos": ["google planilhas 20260618_Visao_detalhada_e335a48d9368"]
 }
@@ -136,6 +139,7 @@ EXCLUSOES_DRIVE = {
 # ==============================================================================
 # CONFIGURAÇÕES DO INVENTÁRIO GB — PERIFÉRICOS (MONITORES)
 # ==============================================================================
+# TODO: ainda não utilizado — feature de periféricos GB pendente de implementação
 # ID da pasta no Google Drive que contém os snapshots de periféricos do GB.
 # URL da pasta: https://drive.google.com/drive/u/1/folders/19LF-SGi7TZ2dEA3FjiyOoGMK0O93DIGJ
 DRIVE_FOLDER_ID_GB_PERIFERICOS = "19LF-SGi7TZ2dEA3FjiyOoGMK0O93DIGJ"

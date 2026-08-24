@@ -24,7 +24,7 @@ def _sanitizar_conteudo(conteudo):
     
     Caracteres preservados:
     - \t (0x09), \n (0x0A), \r (0x0D): Tab, newline, carriage return
-    - Emojis (🟢, 🔴, ⚠️, etc.)
+    - Emojis (🟢, 🔴, ️, etc.)
     - Caracteres Unicode válidos (acentos, símbolos, etc.)
     """
     if not conteudo:
@@ -33,6 +33,46 @@ def _sanitizar_conteudo(conteudo):
     # Regex do openpyxl para caracteres ilegais em XML 1.0
     illegal_char_regex = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
     return illegal_char_regex.sub('', conteudo)
+
+# ==============================================================================
+# FUNÇÃO UTILITÁRIA: VALIDAÇÃO DE CONTEÚDO DO SNAPSHOT (CORREÇÃO FASE 2)
+# ==============================================================================
+def _validar_conteudo_snapshot(conteudo):
+    """
+    CORREÇÃO FASE 2 (ROBUSTEZ): valida se o conteúdo baixado é realmente um
+    snapshot de hardware, e NÃO uma página HTML de erro/aviso do Google Drive
+    (ex: "aviso de verificação de vírus" para arquivos grandes, página de
+    login, erro de compartilhamento).
+    
+    Antes, o HTML era decodificado e repassado ao parser, que falhava
+    SILENCIOSAMENTE (sem seção [ID] → registro descartado sem nenhum aviso).
+    Agora o arquivo inválido lança ValueError, que vira st.warning visível
+    no carregar_snapshots_drive().
+    
+    Lança ValueError se o conteúdo for inválido.
+    """
+    if not conteudo or not conteudo.strip():
+        raise ValueError("Conteúdo vazio retornado pelo Google Drive.")
+    
+    # Detecta páginas HTML de erro/aviso do Drive (virus scan, login, etc.)
+    inicio = conteudo.lstrip()[:200].lower()
+    if '<!doctype html' in inicio or '<html' in inicio:
+        raise ValueError(
+            "O Google Drive retornou uma página HTML (aviso de vírus/login) "
+            "em vez do arquivo .txt. Verifique o tamanho/compartilhamento do arquivo."
+        )
+    
+    # Um snapshot válido precisa ter pelo menos uma seção conhecida ou o
+    # cabeçalho de data; sem isso o parser descartaria o arquivo em silêncio.
+    conteudo_upper = conteudo.upper()
+    tem_secao = any(secao in conteudo_upper for secao in config.SECOES_VALIDAS)
+    tem_gerado_em = "GERADO EM:" in conteudo_upper
+    
+    if not tem_secao and not tem_gerado_em:
+        raise ValueError(
+            "Conteúdo não parece ser um snapshot válido "
+            "(seções [ID]/[HARDWARE]/[SUPORTE] não encontradas)."
+        )
 
 def _get_drive_service():
     """Inicializa o cliente da API do Google Drive usando a API Key."""
@@ -124,6 +164,13 @@ def _baixar_arquivo_drive(file_id, max_retries=3):
             
             # SANITIZAÇÃO: Remove caracteres de controle ilegais do conteúdo bruto
             conteudo_sanitizado = _sanitizar_conteudo(conteudo)
+            
+            # CORREÇÃO FASE 2 (ROBUSTEZ): barra HTML/páginas de erro do Drive e
+            # conteúdo sem as seções esperadas ANTES de entregar ao parser.
+            # ValueError NÃO é RequestException → não entra no loop de retry
+            # (retry não resolve página de aviso) e propaga para o
+            # carregar_snapshots_drive(), que exibe st.warning por arquivo.
+            _validar_conteudo_snapshot(conteudo_sanitizado)
             
             return conteudo_sanitizado
                 

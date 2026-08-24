@@ -7,8 +7,12 @@ load_dotenv()
 # ==============================================================================
 # CONFIGURAÇÕES DO GOOGLE DRIVE
 # ==============================================================================
+# CORREÇÃO FASE 2 (SEGURANÇA/CONFIG): IDs de infraestrutura agora são lidos de
+# variáveis de ambiente (.env local ou Settings > Secrets no Streamlit Cloud).
+# O valor atual permanece como fallback padrão para NÃO quebrar instalações
+# existentes que ainda não configuraram as variáveis.
 # ID da pasta pública onde os snapshots .txt são salvos
-DRIVE_FOLDER_ID = "1EldWrM7U2tP4SPoGczMJyNdIIIcCsX3d"
+DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID", "1EldWrM7U2tP4SPoGczMJyNdIIIcCsX3d")
 
 # A API Key é lida de variável de ambiente por segurança.
 # Nunca hardcode a chave diretamente aqui.
@@ -18,7 +22,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_DRIVE_API_KEY", "")
 # CONFIGURAÇÕES DO GOOGLE SHEETS (INVENTÁRIO GB)
 # ==============================================================================
 # ID da planilha pública do Google Sheets (Inventário GB - PDV)
-SHEETS_SPREADSHEET_ID = "1Vr4T1x8nKDxh5O4AcSXqlHrfqZh8WIcAD-HOm9KRHiA"
+SHEETS_SPREADSHEET_ID = os.getenv("SHEETS_SPREADSHEET_ID", "1Vr4T1x8nKDxh5O4AcSXqlHrfqZh8WIcAD-HOm9KRHiA")
 
 # Aba da planilha que contém os dados de equipamentos GB
 SHEETS_ABA_PDV = "PDV"
@@ -26,20 +30,20 @@ SHEETS_ABA_PDV = "PDV"
 # GID (ID numérico) da aba PDV na planilha
 # Para encontrar: abra a planilha, clique na aba PDV, e copie o número após #gid= na URL
 # Exemplo: https://docs.google.com/spreadsheets/d/.../edit#gid=123456789
-SHEETS_GID_PDV = "1312090202"  # GID correto da aba PDV
+SHEETS_GID_PDV = os.getenv("SHEETS_GID_PDV", "1312090202")  # GID correto da aba PDV
 
 # ==============================================================================
 # CONFIGURAÇÕES DO GOOGLE SHEETS (CELULARES ADMINISTRATIVOS)
 # ==============================================================================
 # ID da planilha pública do Google Sheets (Relatório de Celulares)
-SHEETS_SPREADSHEET_ID_CELULARES = "1JBJDDeev78OxcGbcviKnPKERMMazZVct-khEXPMZUuU"
+SHEETS_SPREADSHEET_ID_CELULARES = os.getenv("SHEETS_SPREADSHEET_ID_CELULARES", "1JBJDDeev78OxcGbcviKnPKERMMazZVct-khEXPMZUuU")
 
 # Aba da planilha que contém os dados de celulares
 SHEETS_ABA_CELULARES = "Relatório_Dispositivos"
 
 # GID (ID numérico) da aba de celulares
 # Para encontrar: abra a planilha, clique na aba, e copie o número após #gid= na URL
-SHEETS_GID_CELULARES = "0"  # GID da aba Relatório_Dispositivos (ajustar se necessário)
+SHEETS_GID_CELULARES = os.getenv("SHEETS_GID_CELULARES", "0")  # GID da aba Relatório_Dispositivos (ajustar se necessário)
 
 # ==============================================================================
 # CONFIGURAÇÕES DE CACHE E PERFORMANCE
@@ -142,4 +146,4 @@ EXCLUSOES_DRIVE = {
 # TODO: ainda não utilizado — feature de periféricos GB pendente de implementação
 # ID da pasta no Google Drive que contém os snapshots de periféricos do GB.
 # URL da pasta: https://drive.google.com/drive/u/1/folders/19LF-SGi7TZ2dEA3FjiyOoGMK0O93DIGJ
-DRIVE_FOLDER_ID_GB_PERIFERICOS = "19LF-SGi7TZ2dEA3FjiyOoGMK0O93DIGJ"
+DRIVE_FOLDER_ID_GB_PERIFERICOS = os.getenv("DRIVE_FOLDER_ID_GB_PERIFERICOS", "19LF-SGi7TZ2dEA3FjiyOoGMK0O93DIGJ")

@@ -37,7 +37,7 @@ def sanitizar_para_excel(df):
     
     Caracteres preservados:
     - \t (0x09), \n (0x0A), \r (0x0D): Tab, newline, carriage return
-    - Emojis (🟢, 🔴, ⚠️, etc.)
+    - Emojis (🟢, 🔴, ️, etc.)
     - Caracteres Unicode válidos (acentos, símbolos, etc.)
     """
     if df is None or df.empty:
@@ -68,6 +68,30 @@ def _garantir_session(key, valor_padrao):
     """
     if key not in st.session_state:
         st.session_state[key] = valor_padrao
+
+# ==============================================================================
+# FUNÇÃO UTILITÁRIA: DETECÇÃO SEGURA DA COLUNA DE MODELO (GB)
+# ==============================================================================
+def _detectar_coluna_modelo_gb(df):
+    """
+    CORREÇÃO FASE 2 (BUG: coluna duplicada na aba GB):
+    A busca original ('modelo' ou 'equipamento' no nome da coluna) capturava
+    'Tipo_Equipamento' — coluna que JÁ faz parte da lista de exibição —,
+    gerando duas colunas 'Tipo' na tabela e na exportação Excel.
+    Agora as colunas base são excluídas explicitamente da busca.
+    """
+    colunas_base = {
+        'local', 'codigo_bpcs', 'nome_dispositivo', 'tipo_equipamento',
+        'status_garantia', 'dias_restantes', 'data_garantia_str'
+    }
+    return next(
+        (
+            col for col in df.columns
+            if col.lower() not in colunas_base
+            and ('modelo' in col.lower() or 'equipamento' in col.lower())
+        ),
+        None
+    )
 
 # ==============================================================================
 # INJEÇÃO DE CSS CUSTOMIZADO (TEMA ESCURO TI PREMIUM)
@@ -285,7 +309,8 @@ with tab_admin:
                     busca_geral = st.text_input("🔎 Busca Livre (Nome, ID, AnyDesk, TV)", key="busca_geral_admin")
                     
                     # CORREÇÃO FASE 1 (Claude #3 / Copilot #4.2): Botão Limpar Filtros
-                    if st.button("🔄 Limpar Filtros (Admin)", key="limpar_filtros_admin"):
+                    # CORREÇÃO FASE 2: rótulo "Resetar" (repõe todas as opções, não esvazia)
+                    if st.button("🔄 Resetar Filtros (Admin)", key="limpar_filtros_admin"):
                         st.session_state.filtro_local_admin = None
                         st.session_state.filtro_usuario_admin = None
                         st.session_state.filtro_windows_admin = None
@@ -503,7 +528,8 @@ with tab_admin:
                     busca_cel = st.text_input("🔎 Buscar (Nome, Responsável, IMEI, Serial)", key="busca_cel")
                     
                     # CORREÇÃO FASE 1 (Claude #3 / Copilot #4.2): Botão Limpar Filtros
-                    if st.button("🔄 Limpar Filtros (Celulares)", key="limpar_filtros_cel"):
+                    # CORREÇÃO FASE 2: rótulo "Resetar" (repõe todas as opções, não esvazia)
+                    if st.button("🔄 Resetar Filtros (Celulares)", key="limpar_filtros_cel"):
                         st.session_state.filtro_local_cel = None
                         st.session_state.filtro_politica_cel = None
                         st.session_state.filtro_modelo_cel = None
@@ -696,7 +722,8 @@ with tab_admin:
                     with col_f2:
                         busca_mon = st.text_input("🔎 Buscar (Modelo, Serial, Usuário)", key="busca_mon")
                         # CORREÇÃO FASE 1 (Claude #3 / Copilot #4.2): Botão Limpar Filtros
-                        if st.button("🔄 Limpar Filtros (Monitores)", key="limpar_filtros_mon"):
+                        # CORREÇÃO FASE 2: rótulo "Resetar" (repõe todas as opções, não esvazia)
+                        if st.button("🔄 Resetar Filtros (Monitores)", key="limpar_filtros_mon"):
                             st.session_state.filtro_local_mon = None
                             st.session_state.busca_mon = ""
                             st.rerun()
@@ -833,7 +860,8 @@ with tab_admin:
                     with col_f2:
                         busca_imp = st.text_input("🔎 Buscar (Modelo, Serial, IP, Nome)", key="busca_imp")
                         # CORREÇÃO FASE 1 (Claude #3 / Copilot #4.2): Botão Limpar Filtros
-                        if st.button("🔄 Limpar Filtros (Impressoras)", key="limpar_filtros_imp"):
+                        # CORREÇÃO FASE 2: rótulo "Resetar" (repõe todas as opções, não esvazia)
+                        if st.button("🔄 Resetar Filtros (Impressoras)", key="limpar_filtros_imp"):
                             st.session_state.filtro_local_imp = None
                             st.session_state.busca_imp = ""
                             st.rerun()
@@ -988,7 +1016,8 @@ with tab_gb:
             filtro_status_gb = st.sidebar.multiselect("Status de Garantia", options=status_garantia, default=st.session_state.filtro_status_gb, key="filtro_status_gb")
             
             # CORREÇÃO FASE 1 (Claude #3 / Copilot #4.2): Botão Limpar Filtros GB
-            if st.sidebar.button("🔄 Limpar Filtros (GB)", key="limpar_filtros_gb"):
+            # CORREÇÃO FASE 2: rótulo "Resetar" (repõe todas as opções, não esvazia)
+            if st.sidebar.button("🔄 Resetar Filtros (GB)", key="limpar_filtros_gb"):
                 st.session_state.filtro_local_gb = None
                 st.session_state.filtro_tipo_gb = None
                 st.session_state.filtro_status_gb = None
@@ -1050,8 +1079,9 @@ with tab_gb:
             
             with col_g3:
                 if not df_gb_filtrado.empty:
-                    # Busca coluna de modelo dinamicamente
-                    modelo_col = next((col for col in df_gb_filtrado.columns if 'modelo' in col.lower() or 'equipamento' in col.lower()), None)
+                    # CORREÇÃO FASE 2: busca coluna de modelo sem colidir com
+                    # 'Tipo_Equipamento' (antes gerava gráfico/tabela duplicados)
+                    modelo_col = _detectar_coluna_modelo_gb(df_gb_filtrado)
                     if modelo_col:
                         top_modelos = df_gb_filtrado[modelo_col].value_counts().head(10).reset_index()
                         top_modelos.columns = ['Modelo', 'Quantidade']
@@ -1067,8 +1097,8 @@ with tab_gb:
             # Seleciona colunas para exibição - INCLUINDO Nome_Dispositivo
             colunas_gb = ['Local', 'Codigo_BPCS', 'Nome_Dispositivo', 'Tipo_Equipamento', 'Status_Garantia', 'Dias_Restantes', 'Data_Garantia_Str']
             
-            # Adiciona coluna de modelo se existir
-            modelo_col = next((col for col in df_gb_filtrado.columns if 'modelo' in col.lower() or 'equipamento' in col.lower()), None)
+            # CORREÇÃO FASE 2: detecção segura da coluna de modelo (sem duplicar 'Tipo_Equipamento')
+            modelo_col = _detectar_coluna_modelo_gb(df_gb_filtrado)
             if modelo_col:
                 colunas_gb.insert(3, modelo_col)
             

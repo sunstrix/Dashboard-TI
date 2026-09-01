@@ -11,6 +11,7 @@ load_dotenv()
 # variáveis de ambiente (.env local ou Settings > Secrets no Streamlit Cloud).
 # O valor atual permanece como fallback padrão para NÃO quebrar instalações
 # existentes que ainda não configuraram as variáveis.
+
 # ID da pasta pública onde os snapshots .txt são salvos
 DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID", "1EldWrM7U2tP4SPoGczMJyNdIIIcCsX3d")
 
@@ -52,6 +53,10 @@ SHEETS_GID_CELULARES = os.getenv("SHEETS_GID_CELULARES", "0")  # GID da aba Rela
 # 3600 segundos = 1 hora. Evita estouro de cota da API do Google.
 CACHE_TTL = 3600
 
+# MELHORIA 7: Cache curto para dados que precisam de atualização mais frequente
+# 600 segundos = 10 minutos. Usado para dados dinâmicos ou processamentos pesados.
+CACHE_TTL_CURTO = 600
+
 # ==============================================================================
 # REGRAS DE NEGÓCIO
 # ==============================================================================
@@ -64,6 +69,97 @@ DIAS_LIMITE_GARANTIA_PROXIMA = 90
 # Nome da empresa e do sistema para exibição no cabeçalho
 NOME_EMPRESA = "CP Fani"
 NOME_SISTEMA = "Inventário de Hardware & Suporte"
+
+# ==============================================================================
+# MELHORIA 4: ESTRUTURA DE NAVEGAÇÃO (ABAS)
+# ==============================================================================
+# Definição centralizada das abas principais do dashboard
+# Isso facilita manutenção futura e evita strings hardcoded no app.py
+ABAS_DASHBOARD = {
+    "visao_geral": {
+        "icone": "📊",
+        "titulo": "Visão Geral",
+        "descricao": "KPIs consolidados de todas as fontes de dados"
+    },
+    "inventario_admin": {
+        "icone": "🏢",
+        "titulo": "Inventário Administrativo",
+        "descricao": "Computadores, Celulares e Periféricos"
+    },
+    "inventario_gb": {
+        "icone": "📊",
+        "titulo": "Inventário GB",
+        "descricao": "Equipamentos com controle de garantia"
+    },
+    "exportacao": {
+        "icone": "⚙️",
+        "titulo": "Exportação",
+        "descricao": "Downloads unificados (CSV/Excel)"
+    }
+}
+
+# ==============================================================================
+# MELHORIA 3: BADGES E ÍCONES PARA KPIs
+# ==============================================================================
+# Thresholds para coloração automática de badges
+# VERDE: valor < threshold_verde
+# AMARELO: threshold_verde <= valor <= threshold_amarelo
+# VERMELHO: valor > threshold_amarelo
+THRESHOLDS_BADGES = {
+    "verde": 5,      # Abaixo de 5 = OK (verde)
+    "amarelo": 10,   # Entre 5 e 10 = Atenção (amarelo)
+    # Acima de 10 = Crítico (vermelho)
+}
+
+# Ícones padronizados para cada tipo de KPI
+# Usados em render_metric_card() para identidade visual consistente
+ICONES_KPI = {
+    "total_maquinas": "🖥️",
+    "ram_baixa": "⚠️",
+    "processadores": "🔧",
+    "snapshot_antigo": "📅",
+    "celulares": "📱",
+    "monitores": "🖥️",
+    "impressoras": "🖨️",
+    "garantias": "🛡️",
+    "chamados": "🎫",
+    "resolvidos": "✅",
+    "pendentes": "⏳",
+    "criticos": "🔴",
+    "locais": "📍",
+    "modelos": "📦",
+    "usuarios": "👤",
+    "default": "📊"
+}
+
+# Cores específicas para badges (complementam a paleta CORES)
+CORES_BADGES = {
+    "verde": {
+        "fundo": "rgba(46, 160, 67, 0.15)",
+        "borda": "#2ea043",
+        "texto": "#2ea043"
+    },
+    "amarelo": {
+        "fundo": "rgba(210, 153, 34, 0.15)",
+        "borda": "#d29922",
+        "texto": "#d29922"
+    },
+    "vermelho": {
+        "fundo": "rgba(218, 54, 51, 0.15)",
+        "borda": "#da3633",
+        "texto": "#da3633"
+    },
+    "azul": {
+        "fundo": "rgba(5, 191, 219, 0.15)",
+        "borda": "#05BFDB",
+        "texto": "#05BFDB"
+    },
+    "cinza": {
+        "fundo": "rgba(139, 148, 158, 0.15)",
+        "borda": "#8b949e",
+        "texto": "#8b949e"
+    }
+}
 
 # ==============================================================================
 # IDENTIDADE VISUAL (TEMA ESCURO TI)

@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import io
 import pytz
 import re
-
 import config
 import drive_client
 import sheets_client
@@ -20,6 +19,130 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ==============================================================================
+# MELHORIA 2: TEMA PLOTLY PERSONALIZADO (FUNÇÃO CENTRALIZADORA)
+# ==============================================================================
+def apply_dashboard_theme(fig):
+    """
+    Aplica o tema premium (Azul Petróleo + Ciano) a qualquer gráfico Plotly.
+    Substitui chamadas manuais repetidas de fig.update_layout().
+    
+    Args:
+        fig: Objeto plotly Figure (px.bar, px.line, px.pie, go.Figure, etc.)
+    
+    Returns:
+        fig: Mesmo objeto com tema aplicado
+    """
+    fig.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+    return fig
+
+# ==============================================================================
+# MELHORIA 3: BADGES E METRIC CARDS (IDENTIDADE VISUAL PREMIUM)
+# ==============================================================================
+def get_status_badge(valor, label=""):
+    """
+    Gera um badge HTML colorido baseado nos thresholds do config.py.
+    
+    Thresholds (config.THRESHOLDS_BADGES):
+        - VERDE: valor < 5
+        - AMARELO: 5 <= valor <= 10
+        - VERMELHO: valor > 10
+    
+    Args:
+        valor (int/float): Valor numérico para coloração
+        label (str): Texto opcional antes do valor
+    
+    Returns:
+        str: HTML do badge estilizado
+    """
+    thresholds = config.THRESHOLDS_BADGES
+    
+    if valor < thresholds['verde']:
+        cor = config.CORES_BADGES['verde']
+    elif valor <= thresholds['amarelo']:
+        cor = config.CORES_BADGES['amarelo']
+    else:
+        cor = config.CORES_BADGES['vermelho']
+    
+    return f"""
+    <span style="
+        background-color: {cor['fundo']};
+        color: {cor['texto']};
+        border: 1px solid {cor['borda']};
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 0.85em;
+        font-weight: bold;
+        display: inline-block;
+        margin-top: 8px;
+    ">{label} {valor}</span>
+    """
+
+def render_metric_card(titulo, valor, icone=None, badge_valor=None, badge_label=""):
+    """
+    Renderiza um card de métrica premium com ícone e badge opcional.
+    
+    Args:
+        titulo (str): Título da métrica
+        valor: Valor principal (pode ser str ou numérico)
+        icone (str): Emoji/ícone (usa config.ICONES_KPI se None)
+        badge_valor (int/float): Valor para badge colorido (opcional)
+        badge_label (str): Label do badge
+    
+    Returns:
+        str: HTML do card estilizado
+    """
+    if icone is None:
+        icone = config.ICONES_KPI.get('default', '📊')
+    
+    badge_html = ""
+    if badge_valor is not None:
+        badge_html = get_status_badge(badge_valor, badge_label)
+    
+    return f"""
+    <div class="metric-card">
+        <div style="font-size: 2.2em; margin-bottom: 10px;">{icone}</div>
+        <div style="
+            color: {config.CORES['texto_secundario']};
+            font-size: 0.9em;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        ">{titulo}</div>
+        <div style="
+            color: {config.CORES['ciano_destaque']};
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 8px;
+        ">{valor}</div>
+        {badge_html}
+    </div>
+    """
+
+# ==============================================================================
+# MELHORIA 6: SAFE LOAD DATA (SPINNERS + TRATAMENTO DE ERROS)
+# ==============================================================================
+def safe_load_data(loader_func, data_name, *args, **kwargs):
+    """
+    Carrega dados com spinner e tratamento de erros amigável em PT-BR.
+    
+    Args:
+        loader_func: Função de carregamento a ser executada
+        data_name (str): Nome amigável dos dados para mensagens
+        *args, **kwargs: Argumentos passados à função
+    
+    Returns:
+        tuple: (resultado, erro) onde erro é None se sucesso
+    """
+    try:
+        with st.spinner(f"🔄 Carregando {data_name}..."):
+            resultado = loader_func(*args, **kwargs)
+        return resultado, None
+    except Exception as e:
+        st.error(f"❌ Erro ao carregar {data_name}: {str(e)}")
+        st.warning("💡 Verifique sua conexão com a internet e as credenciais no arquivo .env")
+        return None, str(e)
 
 # ==============================================================================
 # FUNÇÃO UTILITÁRIA: SANITIZAÇÃO PARA EXCEL
@@ -94,7 +217,50 @@ def _detectar_coluna_modelo_gb(df):
     )
 
 # ==============================================================================
-# INJEÇÃO DE CSS CUSTOMIZADO (TEMA ESCURO TI PREMIUM)
+# FUNÇÃO AUXILIAR: BOTÕES DE EXPORTAÇÃO (ELIMINA DUPLICAÇÃO)
+# ==============================================================================
+def criar_botoes_exportacao(df_display, prefixo_nome, sheet_name, chave_unico):
+    """
+    Cria botões de exportação CSV e Excel padronizados.
+    
+    Args:
+        df_display (pd.DataFrame): DataFrame já filtrado e renomeado para exibição
+        prefixo_nome (str): Prefixo do nome do arquivo (ex: 'inventario_administrativo')
+        sheet_name (str): Nome da aba no Excel
+        chave_unico (str): Chave única para evitar conflitos de widget
+    """
+    col_exp1, col_exp2, _ = st.columns([1, 1, 4])
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    with col_exp1:
+        csv = df_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
+        st.download_button(
+            label="📄 Baixar CSV",
+            data=csv,
+            file_name=f"{prefixo_nome}_{timestamp}.csv",
+            mime="text/csv",
+            key=f"csv_{chave_unico}"
+        )
+    
+    with col_exp2:
+        # SANITIZAÇÃO: Remove caracteres ilegais antes de exportar para Excel
+        df_display_limpo = sanitizar_para_excel(df_display)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_display_limpo.to_excel(writer, index=False, sheet_name=sheet_name)
+        excel_data = output.getvalue()
+        
+        st.download_button(
+            label="📊 Baixar Excel",
+            data=excel_data,
+            file_name=f"{prefixo_nome}_{timestamp}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"excel_{chave_unico}"
+        )
+
+# ==============================================================================
+# MELHORIA 1: CSS PREMIUM EXPANDIDO (TEMA AZUL PETRÓLEO + CIANO)
 # ==============================================================================
 st.markdown(f"""
 <style>
@@ -103,12 +269,14 @@ st.markdown(f"""
         background-color: {config.CORES['fundo_app']};
         color: {config.CORES['texto_principal']};
     }}
+    
     /* Sidebar */
     section[data-testid="stSidebar"] {{
         background-color: {config.CORES['fundo_sidebar']};
         border-right: 1px solid {config.CORES['borda']};
     }}
-    /* Cards de Métricas (KPIs) */
+    
+    /* Cards de Métricas (KPIs) - Streamlit nativo */
     div[data-testid="stMetric"] {{
         background-color: {config.CORES['fundo_card']};
         border: 1px solid {config.CORES['borda']};
@@ -116,18 +284,48 @@ st.markdown(f"""
         border-radius: 8px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }}
+    
     div[data-testid="stMetricLabel"] {{
         color: {config.CORES['texto_secundario']};
         font-size: 0.9em;
     }}
+    
     div[data-testid="stMetricValue"] {{
         color: {config.CORES['ciano_destaque']};
         font-weight: bold;
     }}
+    
+    /* MELHORIA 3: Metric Cards Customizados */
+    .metric-card {{
+        background-color: {config.CORES['fundo_card']};
+        border: 1px solid {config.CORES['borda']};
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }}
+    
+    .metric-card:hover {{
+        transform: translateY(-3px);
+        box-shadow: 0 8px 16px rgba(5, 191, 219, 0.25);
+        border-color: {config.CORES['ciano_destaque']};
+    }}
+    
+    /* MELHORIA 1: Badges */
+    .badge {{
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 0.85em;
+        font-weight: bold;
+        display: inline-block;
+    }}
+    
     /* Títulos */
     h1, h2, h3 {{
         color: {config.CORES['ciano_destaque']};
     }}
+    
     /* Botões Padrão */
     .stButton>button {{
         background-color: {config.CORES['azul_petroleo']};
@@ -136,10 +334,12 @@ st.markdown(f"""
         border-radius: 5px;
         transition: 0.3s;
     }}
+    
     .stButton>button:hover {{
         background-color: {config.CORES['ciano_destaque']};
         color: {config.CORES['fundo_app']};
     }}
+    
     /* Botão de Atualização (Destaque) */
     div[data-testid="stSidebar"] .stButton>button {{
         background-color: {config.CORES['ciano_destaque']};
@@ -147,6 +347,7 @@ st.markdown(f"""
         font-weight: bold;
         width: 100%;
     }}
+    
     /* Placeholders de desenvolvimento */
     .dev-placeholder {{
         background-color: {config.CORES['fundo_card']};
@@ -156,19 +357,98 @@ st.markdown(f"""
         text-align: center;
         margin: 20px 0;
     }}
+    
+    /* MELHORIA 1: Animações suaves */
+    @keyframes fadeIn {{
+        from {{ opacity: 0; transform: translateY(10px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
+    }}
+    
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 8px;
+        border-bottom: 2px solid {config.CORES['borda']};
+    }}
+    
+    .stTabs [data-baseweb="tab"] {{
+        transition: all 0.3s ease;
+        border-radius: 8px 8px 0 0;
+        padding: 12px 24px;
+    }}
+    
+    .stTabs [data-baseweb="tab"]:hover {{
+        background-color: rgba(5, 191, 219, 0.1);
+    }}
+    
+    .stTabs [aria-selected="true"] {{
+        background-color: {config.CORES['azul_petroleo']} !important;
+        border-bottom: 3px solid {config.CORES['ciano_destaque']};
+    }}
+    
+    /* Timestamp global */
+    .timestamp-global {{
+        color: {config.CORES['texto_secundario']};
+        font-size: 0.9em;
+        font-style: italic;
+        margin-bottom: 20px;
+        padding: 8px 16px;
+        background-color: {config.CORES['fundo_card']};
+        border-radius: 6px;
+        border-left: 3px solid {config.CORES['ciano_destaque']};
+    }}
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# CARREGAMENTO DOS DADOS (TODAS AS FONTES)
+# MELHORIA 3: TIMESTAMP GLOBAL DE ÚLTIMA ATUALIZAÇÃO
 # ==============================================================================
-# Inventário Administrativo (Drive - Computadores)
-snapshots_brutos = drive_client.carregar_snapshots_drive()
-df_inventario = pd.DataFrame()
-log_duplicatas = []
+timestamp_atualizacao = datetime.now(pytz.timezone('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')
+st.markdown(f"""
+<div class="timestamp-global">
+    🕐 Última atualização: {timestamp_atualizacao} (Horário de Brasília)
+</div>
+""", unsafe_allow_html=True)
 
-if snapshots_brutos:
-    df_inventario, log_duplicatas = parser.processar_todos_snapshots(snapshots_brutos)
+# ==============================================================================
+# MELHORIA 7: CARREGAMENTO DOS DADOS COM CACHE NO PROCESSAMENTO
+# ==============================================================================
+@st.cache_data(ttl=config.CACHE_TTL_CURTO, show_spinner=False)
+def _processar_snapshots_cached(snapshots_brutos):
+    """
+    MELHORIA 7: Cache no processamento pesado dos snapshots.
+    Evita reprocessar a cada interação do usuário (crítico em hardware antigo).
+    """
+    if not snapshots_brutos:
+        return pd.DataFrame(), [], pd.DataFrame(), pd.DataFrame()
+    
+    df_inv, log_dup = parser.processar_todos_snapshots(snapshots_brutos)
+    df_mon, df_imp = parser.processar_perifericos(snapshots_brutos)
+    return df_inv, log_dup, df_mon, df_imp
+
+@st.cache_data(ttl=config.CACHE_TTL_CURTO, show_spinner=False)
+def _processar_gb_cached(df_gb_bruto):
+    """MELHORIA 7: Cache no processamento da planilha GB."""
+    if df_gb_bruto.empty:
+        return pd.DataFrame()
+    return parser.processar_planilha_gb(df_gb_bruto)
+
+@st.cache_data(ttl=config.CACHE_TTL_CURTO, show_spinner=False)
+def _processar_celulares_cached(df_cel_bruto):
+    """MELHORIA 7: Cache no processamento da planilha de celulares."""
+    if df_cel_bruto.empty:
+        return pd.DataFrame()
+    return parser.processar_planilha_celulares(df_cel_bruto)
+
+# --- Carregamento com MELHORIA 6: safe_load_data + spinners ---
+snapshots_brutos, erro_drive = safe_load_data(
+    drive_client.carregar_snapshots_drive,
+    "Snapshots do Google Drive"
+)
+
+if erro_drive:
+    snapshots_brutos = []
+
+# Processamento com cache (Melhoria 7)
+df_inventario, log_duplicatas, df_monitores, df_impressoras = _processar_snapshots_cached(snapshots_brutos)
 
 # CORREÇÃO FASE 1: Normalização defensiva de strings (strip) para evitar
 # que variações de espaços quebrem os filtros multiselect.
@@ -178,26 +458,19 @@ if not df_inventario.empty:
         if _col_norm in df_inventario.columns:
             df_inventario[_col_norm] = df_inventario[_col_norm].astype(str).str.strip()
 
-# Periféricos (Drive - Monitores e Impressoras)
-df_monitores = pd.DataFrame()
-df_impressoras = pd.DataFrame()
-
-if snapshots_brutos:
-    df_monitores, df_impressoras = parser.processar_perifericos(snapshots_brutos)
-
 # Inventário GB (Sheets)
-df_gb_bruto = sheets_client.carregar_planilha_gb()
-df_gb = pd.DataFrame()
-
-if not df_gb_bruto.empty:
-    df_gb = parser.processar_planilha_gb(df_gb_bruto)
+df_gb_bruto, erro_gb = safe_load_data(
+    sheets_client.carregar_planilha_gb,
+    "Planilha GB (Google Sheets)"
+)
+df_gb = _processar_gb_cached(df_gb_bruto if df_gb_bruto is not None else pd.DataFrame())
 
 # Celulares Administrativos (Sheets - Relatório_Dispositivos)
-df_celulares_bruto = sheets_client.carregar_planilha_celulares()
-df_celulares = pd.DataFrame()
-
-if not df_celulares_bruto.empty:
-    df_celulares = parser.processar_planilha_celulares(df_celulares_bruto)
+df_celulares_bruto, erro_cel = safe_load_data(
+    sheets_client.carregar_planilha_celulares,
+    "Planilha de Celulares (Google Sheets)"
+)
+df_celulares = _processar_celulares_cached(df_celulares_bruto if df_celulares_bruto is not None else pd.DataFrame())
 
 # ==============================================================================
 # INICIALIZAÇÃO DE SESSION_STATE PARA TODOS OS FILTROS
@@ -239,6 +512,10 @@ with st.sidebar:
         drive_client.carregar_snapshots_drive.clear()
         sheets_client.carregar_planilha_gb.clear()
         sheets_client.carregar_planilha_celulares.clear()
+        # MELHORIA 7: limpa também o cache de processamento
+        _processar_snapshots_cached.clear()
+        _processar_gb_cached.clear()
+        _processar_celulares_cached.clear()
         st.rerun()
     
     # SELETOR DE RELATÓRIO (NOVO)
@@ -255,20 +532,94 @@ with st.sidebar:
     st.markdown("### 🔍 Filtros")
 
 # ==============================================================================
-# NAVEGAÇÃO PRINCIPAL POR ABAS
+# MELHORIA 4: NAVEGAÇÃO PRINCIPAL POR ABAS (REESTRUTURADA)
 # ==============================================================================
 # NOTA FASE 1: Streamlit NÃO suporta seleção programática de abas via st.tabs().
-# A variável abaixo é mantida para referência futura, mas não tem efeito prático
-# na ativação da aba. A navegação real ocorre pelo clique do usuário na aba.
-indice_aba = 0 if relatorio_selecionado == "🏢 Inventário Administrativo" else 1
-
-tab_admin, tab_gb = st.tabs([
-    "🏢 Inventário Administrativo",
-    "📊 Inventário GB"
+# A navegação real ocorre pelo clique do usuário na aba.
+tab_visao_geral, tab_admin, tab_gb, tab_exportacao = st.tabs([
+    f"{config.ABAS_DASHBOARD['visao_geral']['icone']} {config.ABAS_DASHBOARD['visao_geral']['titulo']}",
+    f"{config.ABAS_DASHBOARD['inventario_admin']['icone']} {config.ABAS_DASHBOARD['inventario_admin']['titulo']}",
+    f"{config.ABAS_DASHBOARD['inventario_gb']['icone']} {config.ABAS_DASHBOARD['inventario_gb']['titulo']}",
+    f"{config.ABAS_DASHBOARD['exportacao']['icone']} {config.ABAS_DASHBOARD['exportacao']['titulo']}"
 ])
 
 # ==============================================================================
-# ABA 1: INVENTÁRIO ADMINISTRATIVO
+# MELHORIA 4: ABA 1 — VISÃO GERAL (NOVA)
+# ==============================================================================
+with tab_visao_geral:
+    st.title("📊 Visão Geral do Inventário de TI")
+    st.markdown(f"*{config.ABAS_DASHBOARD['visao_geral']['descricao']}*")
+    st.markdown("---")
+    
+    # KPIs consolidados de todas as fontes
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    total_computadores = len(df_inventario) if not df_inventario.empty else 0
+    total_celulares_admin = len(df_celulares) if not df_celulares.empty else 0
+    total_monitores = len(df_monitores) if not df_monitores.empty else 0
+    total_impressoras = len(df_impressoras) if not df_impressoras.empty else 0
+    total_gb = len(df_gb) if not df_gb.empty else 0
+    
+    with col1:
+        st.markdown(render_metric_card(
+            "Computadores",
+            total_computadores,
+            icone=config.ICONES_KPI['total_maquinas']
+        ), unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(render_metric_card(
+            "Celulares Admin",
+            total_celulares_admin,
+            icone=config.ICONES_KPI['celulares']
+        ), unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(render_metric_card(
+            "Monitores",
+            total_monitores,
+            icone=config.ICONES_KPI['monitores']
+        ), unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown(render_metric_card(
+            "Impressoras",
+            total_impressoras,
+            icone=config.ICONES_KPI['impressoras']
+        ), unsafe_allow_html=True)
+    
+    with col5:
+        st.markdown(render_metric_card(
+            "Equipamentos GB",
+            total_gb,
+            icone=config.ICONES_KPI['garantias']
+        ), unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Gráfico resumo de distribuição por fonte
+    st.subheader("📈 Distribuição Geral do Parque")
+    
+    dados_resumo = pd.DataFrame({
+        'Categoria': ['Computadores', 'Celulares', 'Monitores', 'Impressoras', 'GB'],
+        'Quantidade': [total_computadores, total_celulares_admin, total_monitores, total_impressoras, total_gb]
+    })
+    
+    if dados_resumo['Quantidade'].sum() > 0:
+        fig_resumo = px.bar(
+            dados_resumo,
+            x='Categoria',
+            y='Quantidade',
+            title='Total de Equipamentos por Categoria',
+            color_discrete_sequence=[config.CORES['ciano_destaque']]
+        )
+        fig_resumo = apply_dashboard_theme(fig_resumo)
+        st.plotly_chart(fig_resumo, use_container_width=True)
+    else:
+        st.info("ℹ️ Nenhum dado disponível para exibir o resumo.")
+
+# ==============================================================================
+# ABA 2: INVENTÁRIO ADMINISTRATIVO
 # ==============================================================================
 with tab_admin:
     # CORREÇÃO FASE 1 (Claude #1): st.stop() removido. Agora usa if/else para
@@ -364,7 +715,6 @@ with tab_admin:
             else:
                 # KPIs (Indicadores Principais)
                 st.title(f"📊 Painel de Inventário Administrativo")
-                st.markdown(f"*Atualizado em: {datetime.now(pytz.timezone('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')} (Horário de Brasília)*")
                 
                 col1, col2, col3, col4, col5 = st.columns(5)
                 
@@ -380,11 +730,43 @@ with tab_admin:
                 else:
                     data_mais_antiga = "N/A"
                 
-                col1.metric("Total de Máquinas", total_maquinas)
-                col2.metric("RAM < 8GB (Alerta)", maquinas_ram_baixa, delta_color="inverse")
-                col3.metric("Processadores AMD", amd_count)
-                col4.metric("Processadores Intel", intel_count)
-                col5.metric("Snapshot + Antigo", data_mais_antiga)
+                # MELHORIA 3: Substitui st.metric() por render_metric_card()
+                with col1:
+                    st.markdown(render_metric_card(
+                        "Total de Máquinas",
+                        total_maquinas,
+                        icone=config.ICONES_KPI['total_maquinas']
+                    ), unsafe_allow_html=True)
+                
+                with col2:
+                    st.markdown(render_metric_card(
+                        "RAM < 8GB (Alerta)",
+                        maquinas_ram_baixa,
+                        icone=config.ICONES_KPI['ram_baixa'],
+                        badge_valor=maquinas_ram_baixa,
+                        badge_label="⚠️"
+                    ), unsafe_allow_html=True)
+                
+                with col3:
+                    st.markdown(render_metric_card(
+                        "Processadores AMD",
+                        amd_count,
+                        icone=config.ICONES_KPI['processadores']
+                    ), unsafe_allow_html=True)
+                
+                with col4:
+                    st.markdown(render_metric_card(
+                        "Processadores Intel",
+                        intel_count,
+                        icone=config.ICONES_KPI['processadores']
+                    ), unsafe_allow_html=True)
+                
+                with col5:
+                    st.markdown(render_metric_card(
+                        "Snapshot + Antigo",
+                        data_mais_antiga,
+                        icone=config.ICONES_KPI['snapshot_antigo']
+                    ), unsafe_allow_html=True)
                 
                 # CORREÇÃO FASE 1: alerta visível para erros de parsing de RAM
                 if maquinas_ram_erro > 0:
@@ -399,7 +781,7 @@ with tab_admin:
                 with col_g1:
                     if not df_filtrado.empty:
                         fig_local = px.bar(df_filtrado, x='Local', title='Máquinas por Local', color_discrete_sequence=[config.CORES['ciano_destaque']])
-                        fig_local.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                        fig_local = apply_dashboard_theme(fig_local)
                         st.plotly_chart(fig_local, use_container_width=True)
                 
                 with col_g2:
@@ -407,13 +789,13 @@ with tab_admin:
                         top_proc = df_filtrado['Processador'].value_counts().head(10).reset_index()
                         top_proc.columns = ['Processador', 'Quantidade']
                         fig_proc = px.bar(top_proc, x='Quantidade', y='Processador', orientation='h', title='Top 10 Processadores', color_discrete_sequence=[config.CORES['azul_petroleo']])
-                        fig_proc.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                        fig_proc = apply_dashboard_theme(fig_proc)
                         st.plotly_chart(fig_proc, use_container_width=True)
                 
                 with col_g3:
                     if not df_filtrado.empty:
                         fig_win = px.pie(df_filtrado, names='Windows', title='Distribuição Windows', hole=0.4, color_discrete_sequence=px.colors.sequential.Viridis)
-                        fig_win.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                        fig_win = apply_dashboard_theme(fig_win)
                         fig_win.update_traces(textposition='inside', textinfo='percent+label')
                         st.plotly_chart(fig_win, use_container_width=True)
                 
@@ -463,39 +845,13 @@ with tab_admin:
                 # Botões de Exportação
                 st.markdown("---")
                 st.subheader("📥 Exportar Dados Filtrados")
-                
-                col_exp1, col_exp2, _ = st.columns([1, 1, 4])
-                
-                with col_exp1:
-                    csv = df_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-                    st.download_button(
-                        label="📄 Baixar CSV",
-                        data=csv,
-                        file_name=f"inventario_administrativo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv"
-                    )
-                
-                with col_exp2:
-                    # SANITIZAÇÃO: Remove caracteres ilegais antes de exportar para Excel
-                    df_display_limpo = sanitizar_para_excel(df_display)
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        df_display_limpo.to_excel(writer, index=False, sheet_name='Inventario_Admin')
-                    excel_data = output.getvalue()
-                    
-                    st.download_button(
-                        label="📊 Baixar Excel",
-                        data=excel_data,
-                        file_name=f"inventario_administrativo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                criar_botoes_exportacao(df_display, "inventario_administrativo", "Inventario_Admin", "admin")
 
         # ---------------------------------------------------------------------
         # SUB-ABA 1.2: CELULARES ADMINISTRATIVOS (FUNCIONAL - Planilha Relatório_Dispositivos)
         # ---------------------------------------------------------------------
         with sub_tab_celulares:
             st.title("📱 Celulares Administrativos")
-            st.markdown(f"*Atualizado em: {datetime.now(pytz.timezone('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')} (Horário de Brasília)*")
             st.markdown("---")
             
             if df_celulares.empty:
@@ -569,11 +925,43 @@ with tab_admin:
                     cel_ok = len(df_cel_filtrado[df_cel_filtrado['Status_Comunicacao'] == '🟢 OK'])
                     cel_desat = len(df_cel_filtrado[df_cel_filtrado['Status_Comunicacao'] == '🔴 Desatualizado'])
                     
-                    col1.metric("Total de Celulares", total_cel)
-                    col2.metric("🟢 Atualizados", cel_ok)
-                    col3.metric("🔴 Desatualizados", cel_desat)
-                    col4.metric("Locais com Celulares", df_cel_filtrado['Local'].nunique())
-                    col5.metric("Modelos Diferentes", df_cel_filtrado['Modelo'].nunique())
+                    # MELHORIA 3: Metric cards com badges
+                    with col1:
+                        st.markdown(render_metric_card(
+                            "Total de Celulares",
+                            total_cel,
+                            icone=config.ICONES_KPI['celulares']
+                        ), unsafe_allow_html=True)
+                    
+                    with col2:
+                        st.markdown(render_metric_card(
+                            "🟢 Atualizados",
+                            cel_ok,
+                            icone=config.ICONES_KPI['resolvidos']
+                        ), unsafe_allow_html=True)
+                    
+                    with col3:
+                        st.markdown(render_metric_card(
+                            "🔴 Desatualizados",
+                            cel_desat,
+                            icone=config.ICONES_KPI['criticos'],
+                            badge_valor=cel_desat,
+                            badge_label="🔴"
+                        ), unsafe_allow_html=True)
+                    
+                    with col4:
+                        st.markdown(render_metric_card(
+                            "Locais com Celulares",
+                            df_cel_filtrado['Local'].nunique(),
+                            icone=config.ICONES_KPI['locais']
+                        ), unsafe_allow_html=True)
+                    
+                    with col5:
+                        st.markdown(render_metric_card(
+                            "Modelos Diferentes",
+                            df_cel_filtrado['Modelo'].nunique(),
+                            icone=config.ICONES_KPI['modelos']
+                        ), unsafe_allow_html=True)
                     
                     st.markdown("---")
                     
@@ -589,7 +977,7 @@ with tab_admin:
                                 title='Celulares por Local', 
                                 color_discrete_sequence=[config.CORES['ciano_destaque']]
                             )
-                            fig_cel_local.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                            fig_cel_local = apply_dashboard_theme(fig_cel_local)
                             st.plotly_chart(fig_cel_local, use_container_width=True)
                     
                     with col_g2:
@@ -601,7 +989,7 @@ with tab_admin:
                                 hole=0.4, 
                                 color_discrete_sequence=[config.CORES['azul_petroleo'], config.CORES['ciano_destaque'], config.CORES['verde_sucesso'], config.CORES['amarelo_alerta']]
                             )
-                            fig_cel_pol.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                            fig_cel_pol = apply_dashboard_theme(fig_cel_pol)
                             fig_cel_pol.update_traces(textposition='inside', textinfo='percent+label')
                             st.plotly_chart(fig_cel_pol, use_container_width=True)
                     
@@ -617,7 +1005,7 @@ with tab_admin:
                                 title='Top 10 Modelos de Celulares', 
                                 color_discrete_sequence=[config.CORES['verde_sucesso']]
                             )
-                            fig_cel_modelo.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                            fig_cel_modelo = apply_dashboard_theme(fig_cel_modelo)
                             st.plotly_chart(fig_cel_modelo, use_container_width=True)
                     
                     st.markdown("---")
@@ -661,41 +1049,13 @@ with tab_admin:
                     # Exportação de Celulares
                     st.markdown("---")
                     st.subheader("📥 Exportar Celulares")
-                    
-                    col_exp1, col_exp2, _ = st.columns([1, 1, 4])
-                    
-                    with col_exp1:
-                        csv_cel = df_cel_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-                        st.download_button(
-                            label="📄 Baixar CSV",
-                            data=csv_cel,
-                            file_name=f"celulares_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv",
-                            key="csv_cel"
-                        )
-                    
-                    with col_exp2:
-                        # SANITIZAÇÃO: Remove caracteres ilegais antes de exportar para Excel
-                        df_cel_display_limpo = sanitizar_para_excel(df_cel_display)
-                        output_cel = io.BytesIO()
-                        with pd.ExcelWriter(output_cel, engine='openpyxl') as writer:
-                            df_cel_display_limpo.to_excel(writer, index=False, sheet_name='Celulares')
-                        excel_data_cel = output_cel.getvalue()
-                        
-                        st.download_button(
-                            label="📊 Baixar Excel",
-                            data=excel_data_cel,
-                            file_name=f"celulares_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="excel_cel"
-                        )
+                    criar_botoes_exportacao(df_cel_display, "celulares", "Celulares", "cel")
 
         # ---------------------------------------------------------------------
         # SUB-ABA 1.3: PERIFÉRICOS (FUNCIONAL - Monitores e Impressoras)
         # ---------------------------------------------------------------------
         with sub_tab_perifericos:
             st.title("🖨️ Periféricos")
-            st.markdown(f"*Atualizado em: {datetime.now(pytz.timezone('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')} (Horário de Brasília)*")
             st.markdown("---")
             
             # Sub-sub-abas: Monitores e Impressoras
@@ -749,9 +1109,28 @@ with tab_admin:
                         # KPIs de Monitores
                         st.subheader("📊 Visão Geral dos Monitores")
                         col1, col2, col3 = st.columns(3)
-                        col1.metric("Total de Monitores", len(df_mon_filtrado))
-                        col2.metric("Locais com Monitores", df_mon_filtrado['Local'].nunique())
-                        col3.metric("Modelos Diferentes", df_mon_filtrado['Modelo_Monitor'].nunique())
+                        
+                        # MELHORIA 3: Metric cards
+                        with col1:
+                            st.markdown(render_metric_card(
+                                "Total de Monitores",
+                                len(df_mon_filtrado),
+                                icone=config.ICONES_KPI['monitores']
+                            ), unsafe_allow_html=True)
+                        
+                        with col2:
+                            st.markdown(render_metric_card(
+                                "Locais com Monitores",
+                                df_mon_filtrado['Local'].nunique(),
+                                icone=config.ICONES_KPI['locais']
+                            ), unsafe_allow_html=True)
+                        
+                        with col3:
+                            st.markdown(render_metric_card(
+                                "Modelos Diferentes",
+                                df_mon_filtrado['Modelo_Monitor'].nunique(),
+                                icone=config.ICONES_KPI['modelos']
+                            ), unsafe_allow_html=True)
                         
                         st.markdown("---")
                         
@@ -767,7 +1146,7 @@ with tab_admin:
                                     title='Monitores por Local', 
                                     color_discrete_sequence=[config.CORES['ciano_destaque']]
                                 )
-                                fig_mon_local.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                                fig_mon_local = apply_dashboard_theme(fig_mon_local)
                                 st.plotly_chart(fig_mon_local, use_container_width=True)
                         
                         with col_g2:
@@ -782,7 +1161,7 @@ with tab_admin:
                                     title='Top 10 Modelos de Monitores', 
                                     color_discrete_sequence=[config.CORES['azul_petroleo']]
                                 )
-                                fig_mon_modelo.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                                fig_mon_modelo = apply_dashboard_theme(fig_mon_modelo)
                                 st.plotly_chart(fig_mon_modelo, use_container_width=True)
                         
                         st.markdown("---")
@@ -813,34 +1192,7 @@ with tab_admin:
                         # Exportação de Monitores
                         st.markdown("---")
                         st.subheader("📥 Exportar Monitores")
-                        
-                        col_exp1, col_exp2, _ = st.columns([1, 1, 4])
-                        
-                        with col_exp1:
-                            csv_mon = df_mon_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-                            st.download_button(
-                                label="📄 Baixar CSV",
-                                data=csv_mon,
-                                file_name=f"monitores_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                mime="text/csv",
-                                key="csv_mon"
-                            )
-                        
-                        with col_exp2:
-                            # SANITIZAÇÃO: Removes caracteres ilegais antes de exportar para Excel
-                            df_mon_display_limpo = sanitizar_para_excel(df_mon_display)
-                            output_mon = io.BytesIO()
-                            with pd.ExcelWriter(output_mon, engine='openpyxl') as writer:
-                                df_mon_display_limpo.to_excel(writer, index=False, sheet_name='Monitores')
-                            excel_data_mon = output_mon.getvalue()
-                            
-                            st.download_button(
-                                label="📊 Baixar Excel",
-                                data=excel_data_mon,
-                                file_name=f"monitores_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key="excel_mon"
-                            )
+                        criar_botoes_exportacao(df_mon_display, "monitores", "Monitores", "mon")
             
             # ==================================================================
             # SUB-SUB-ABA: IMPRESSORAS
@@ -888,9 +1240,28 @@ with tab_admin:
                         # KPIs de Impressoras
                         st.subheader("📊 Visão Geral das Impressoras")
                         col1, col2, col3 = st.columns(3)
-                        col1.metric("Total de Impressoras", len(df_imp_filtrado))
-                        col2.metric("Locais com Impressoras", df_imp_filtrado['Local'].nunique())
-                        col3.metric("Modelos Diferentes", df_imp_filtrado['Modelo_Impressora'].nunique())
+                        
+                        # MELHORIA 3: Metric cards
+                        with col1:
+                            st.markdown(render_metric_card(
+                                "Total de Impressoras",
+                                len(df_imp_filtrado),
+                                icone=config.ICONES_KPI['impressoras']
+                            ), unsafe_allow_html=True)
+                        
+                        with col2:
+                            st.markdown(render_metric_card(
+                                "Locais com Impressoras",
+                                df_imp_filtrado['Local'].nunique(),
+                                icone=config.ICONES_KPI['locais']
+                            ), unsafe_allow_html=True)
+                        
+                        with col3:
+                            st.markdown(render_metric_card(
+                                "Modelos Diferentes",
+                                df_imp_filtrado['Modelo_Impressora'].nunique(),
+                                icone=config.ICONES_KPI['modelos']
+                            ), unsafe_allow_html=True)
                         
                         st.markdown("---")
                         
@@ -906,7 +1277,7 @@ with tab_admin:
                                     title='Impressoras por Local', 
                                     color_discrete_sequence=[config.CORES['ciano_destaque']]
                                 )
-                                fig_imp_local.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                                fig_imp_local = apply_dashboard_theme(fig_imp_local)
                                 st.plotly_chart(fig_imp_local, use_container_width=True)
                         
                         with col_g2:
@@ -921,7 +1292,7 @@ with tab_admin:
                                     title='Top 10 Modelos de Impressoras', 
                                     color_discrete_sequence=[config.CORES['azul_petroleo']]
                                 )
-                                fig_imp_modelo.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                                fig_imp_modelo = apply_dashboard_theme(fig_imp_modelo)
                                 st.plotly_chart(fig_imp_modelo, use_container_width=True)
                         
                         st.markdown("---")
@@ -954,37 +1325,10 @@ with tab_admin:
                         # Exportação de Impressoras
                         st.markdown("---")
                         st.subheader("📥 Exportar Impressoras")
-                        
-                        col_exp1, col_exp2, _ = st.columns([1, 1, 4])
-                        
-                        with col_exp1:
-                            csv_imp = df_imp_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-                            st.download_button(
-                                label="📄 Baixar CSV",
-                                data=csv_imp,
-                                file_name=f"impressoras_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                mime="text/csv",
-                                key="csv_imp"
-                            )
-                        
-                        with col_exp2:
-                            # SANITIZAÇÃO: Removes caracteres ilegais antes de exportar para Excel
-                            df_imp_display_limpo = sanitizar_para_excel(df_imp_display)
-                            output_imp = io.BytesIO()
-                            with pd.ExcelWriter(output_imp, engine='openpyxl') as writer:
-                                df_imp_display_limpo.to_excel(writer, index=False, sheet_name='Impressoras')
-                            excel_data_imp = output_imp.getvalue()
-                            
-                            st.download_button(
-                                label="📊 Baixar Excel",
-                                data=excel_data_imp,
-                                file_name=f"impressoras_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key="excel_imp"
-                            )
+                        criar_botoes_exportacao(df_imp_display, "impressoras", "Impressoras", "imp")
 
 # ==============================================================================
-# ABA 2: INVENTÁRIO GB (GOOGLE SHEETS)
+# ABA 3: INVENTÁRIO GB (GOOGLE SHEETS)
 # ==============================================================================
 with tab_gb:
     # CORREÇÃO FASE 1 (Claude #1): st.stop() removido. Agora usa if/else para
@@ -1042,7 +1386,6 @@ with tab_gb:
         else:
             # KPIs do Inventário GB
             st.title(f"📊 Painel de Inventário GB")
-            st.markdown(f"*Atualizado em: {datetime.now(pytz.timezone('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')} (Horário de Brasília)*")
             
             col1, col2, col3, col4, col5 = st.columns(5)
             
@@ -1052,11 +1395,45 @@ with tab_gb:
             garantia_proxima = len(df_gb_filtrado[df_gb_filtrado['Status_Garantia'] == '🟡 Próxima do Vencimento'])
             garantia_vencida = len(df_gb_filtrado[df_gb_filtrado['Status_Garantia'] == '🔴 Vencida'])
             
-            col1.metric("Total Equipamentos GB", total_gb)
-            col2.metric("Celulares", total_celulares)
-            col3.metric("Computadores", total_computadores)
-            col4.metric("Garantia Próxima", garantia_proxima, delta_color="inverse")
-            col5.metric("Garantia Vencida", garantia_vencida, delta_color="inverse")
+            # MELHORIA 3: Metric cards com badges para garantias
+            with col1:
+                st.markdown(render_metric_card(
+                    "Total Equipamentos GB",
+                    total_gb,
+                    icone=config.ICONES_KPI['garantias']
+                ), unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown(render_metric_card(
+                    "Celulares",
+                    total_celulares,
+                    icone=config.ICONES_KPI['celulares']
+                ), unsafe_allow_html=True)
+            
+            with col3:
+                st.markdown(render_metric_card(
+                    "Computadores",
+                    total_computadores,
+                    icone=config.ICONES_KPI['total_maquinas']
+                ), unsafe_allow_html=True)
+            
+            with col4:
+                st.markdown(render_metric_card(
+                    "Garantia Próxima",
+                    garantia_proxima,
+                    icone=config.ICONES_KPI['pendentes'],
+                    badge_valor=garantia_proxima,
+                    badge_label="🟡"
+                ), unsafe_allow_html=True)
+            
+            with col5:
+                st.markdown(render_metric_card(
+                    "Garantia Vencida",
+                    garantia_vencida,
+                    icone=config.ICONES_KPI['criticos'],
+                    badge_valor=garantia_vencida,
+                    badge_label="🔴"
+                ), unsafe_allow_html=True)
             
             st.markdown("---")
             
@@ -1067,13 +1444,13 @@ with tab_gb:
             with col_g1:
                 if not df_gb_filtrado.empty:
                     fig_local_gb = px.bar(df_gb_filtrado, x='Local', title='Equipamentos por Local', color_discrete_sequence=[config.CORES['ciano_destaque']])
-                    fig_local_gb.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                    fig_local_gb = apply_dashboard_theme(fig_local_gb)
                     st.plotly_chart(fig_local_gb, use_container_width=True)
             
             with col_g2:
                 if not df_gb_filtrado.empty:
                     fig_tipo_gb = px.pie(df_gb_filtrado, names='Tipo_Equipamento', title='Distribuição por Tipo', hole=0.4, color_discrete_sequence=[config.CORES['azul_petroleo'], config.CORES['ciano_destaque'], config.CORES['amarelo_alerta']])
-                    fig_tipo_gb.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                    fig_tipo_gb = apply_dashboard_theme(fig_tipo_gb)
                     fig_tipo_gb.update_traces(textposition='inside', textinfo='percent+label')
                     st.plotly_chart(fig_tipo_gb, use_container_width=True)
             
@@ -1086,7 +1463,7 @@ with tab_gb:
                         top_modelos = df_gb_filtrado[modelo_col].value_counts().head(10).reset_index()
                         top_modelos.columns = ['Modelo', 'Quantidade']
                         fig_modelos = px.bar(top_modelos, x='Quantidade', y='Modelo', orientation='h', title='Top 10 Modelos', color_discrete_sequence=[config.CORES['verde_sucesso']])
-                        fig_modelos.update_layout(config.PLOTLY_TEMPLATE_CONFIG['layout'])
+                        fig_modelos = apply_dashboard_theme(fig_modelos)
                         st.plotly_chart(fig_modelos, use_container_width=True)
             
             st.markdown("---")
@@ -1140,29 +1517,40 @@ with tab_gb:
             # Botões de Exportação GB
             st.markdown("---")
             st.subheader("📥 Exportar Dados GB Filtrados")
-            
-            col_exp1, col_exp2, _ = st.columns([1, 1, 4])
-            
-            with col_exp1:
-                csv_gb = df_gb_display.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-                st.download_button(
-                    label="📄 Baixar CSV",
-                    data=csv_gb,
-                    file_name=f"inventario_gb_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-            
-            with col_exp2:
-                # SANITIZAÇÃO: Remove caracteres ilegais antes de exportar para Excel
-                df_gb_display_limpo = sanitizar_para_excel(df_gb_display)
-                output_gb = io.BytesIO()
-                with pd.ExcelWriter(output_gb, engine='openpyxl') as writer:
-                    df_gb_display_limpo.to_excel(writer, index=False, sheet_name='Inventario_GB')
-                excel_data_gb = output_gb.getvalue()
-                
-                st.download_button(
-                    label="📊 Baixar Excel",
-                    data=excel_data_gb,
-                    file_name=f"inventario_gb_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+            criar_botoes_exportacao(df_gb_display, "inventario_gb", "Inventario_GB", "gb")
+
+# ==============================================================================
+# MELHORIA 4: ABA 4 — EXPORTAÇÃO UNIFICADA (NOVA)
+# ==============================================================================
+with tab_exportacao:
+    st.title("⚙️ Exportação de Dados")
+    st.markdown(f"*{config.ABAS_DASHBOARD['exportacao']['descricao']}*")
+    st.markdown("---")
+    
+    st.info("ℹ️ Use os botões de exportação disponíveis em cada aba de inventário para baixar os dados filtrados em CSV ou Excel.")
+    
+    st.markdown("---")
+    st.subheader("📦 Resumo dos Dados Disponíveis")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 🏢 Inventário Administrativo")
+        st.markdown(f"- 💻 Computadores: **{len(df_inventario)}** registros")
+        st.markdown(f"- 📱 Celulares: **{len(df_celulares)}** registros")
+        st.markdown(f"- 🖥️ Monitores: **{len(df_monitores)}** registros")
+        st.markdown(f"- 🖨️ Impressoras: **{len(df_impressoras)}** registros")
+    
+    with col2:
+        st.markdown("#### 📊 Inventário GB")
+        st.markdown(f"- 📦 Equipamentos: **{len(df_gb)}** registros")
+    
+    st.markdown("---")
+    st.markdown("""
+    ### 💡 Dicas de Exportação
+    
+    - **CSV**: Compatível com Excel PT-BR (separador `;` e UTF-8 BOM)
+    - **Excel (.xlsx)**: Formatação automática com sanitização de caracteres especiais
+    - Os dados exportados respeitam os **filtros aplicados** na aba de origem
+    - Use o botão **"🔄 Forçar Atualização dos Dados"** na sidebar para garantir dados recentes antes de exportar
+    """)
